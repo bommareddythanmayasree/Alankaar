@@ -1,6 +1,6 @@
 import { useAuth } from "../../app/auth/auth-context";
 
-const API_BASE = "http://localhost:4000";
+const API_BASE = "https://alankaar-backend-t308.onrender.com";
 
 export type ApiError = { message: string };
 
