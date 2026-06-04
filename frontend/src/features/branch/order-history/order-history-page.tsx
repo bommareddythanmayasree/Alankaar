@@ -1,0 +1,154 @@
+﻿import { useMemo, useState } from "react";
+import { Eye, Search } from "lucide-react";
+import { ErpLayout } from "../../shared/erp-layout";
+import { BRANCH_NAV, buildSidebar } from "../../../app/navigation/sidebars";
+import { BRANCH_HISTORY_ORDERS, type BranchOrderStatus } from "../../../shared/data/branch-mock-data";
+import { useOrders } from "../../../app/branch/branch-context";
+
+const SIDEBAR_LABELS = [
+  "Dashboard",
+  "Employee Management",
+  "Product Catalog",
+  "Shopping Cart",
+  "Checkout",
+  "Order Tracking",
+  "Order History",
+  "Notifications",
+  "Settings",
+] as const;
+
+function statusBadge(status: BranchOrderStatus) {
+  if (status === "Delivered") return "bg-emerald-100 text-emerald-700";
+  if (status === "Approved") return "bg-indigo-100 text-indigo-700";
+  if (status === "In Transit") return "bg-sky-100 text-sky-700";
+  return "bg-amber-100 text-amber-700";
+}
+
+export function OrderHistoryPage() {
+  const { orders: contextOrders } = useOrders();
+  const [statusFilter, setStatusFilter] = useState<"All" | BranchOrderStatus>("All");
+  const [search, setSearch] = useState("");
+  const [visibleCount, setVisibleCount] = useState(6);
+
+  // Merge context orders with seed orders
+  const allOrders = useMemo(() => {
+    const mapped = contextOrders.map((o) => ({
+      orderId: o.orderId,
+      branchName: o.branch,
+      date: o.orderDate,
+      items: o.items.reduce((sum, i) => sum + i.qty, 0),
+      amount: o.amount,
+      status: o.currentStatus as BranchOrderStatus,
+      deliveryDate: o.expectedDelivery,
+    }));
+    return [...mapped, ...BRANCH_HISTORY_ORDERS];
+  }, [contextOrders]);
+
+  const filtered = useMemo(() => {
+    let rows = allOrders;
+    if (statusFilter !== "All") rows = rows.filter((o) => o.status === statusFilter);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      rows = rows.filter((o) => [o.orderId, o.branchName, o.status].join(" ").toLowerCase().includes(q));
+    }
+    return rows;
+  }, [allOrders, statusFilter, search]);
+
+  const visible = filtered.slice(0, visibleCount);
+
+  const summaryCards = [
+    { label: "All Orders", value: allOrders.length, color: "text-[#0A3A92]", filter: "All" as const },
+    { label: "Pending", value: allOrders.filter((o) => o.status === "Pending").length, color: "text-amber-600", filter: "Pending" as BranchOrderStatus },
+    { label: "Approved", value: allOrders.filter((o) => o.status === "Approved").length, color: "text-indigo-600", filter: "Approved" as BranchOrderStatus },
+    { label: "In Transit", value: allOrders.filter((o) => o.status === "In Transit").length, color: "text-sky-600", filter: "In Transit" as BranchOrderStatus },
+    { label: "Delivered", value: allOrders.filter((o) => o.status === "Delivered").length, color: "text-emerald-600", filter: "Delivered" as BranchOrderStatus },
+  ];
+
+  return (
+    <ErpLayout
+      
+      sidebarItems={buildSidebar(BRANCH_NAV, [...SIDEBAR_LABELS], "Order History")}
+    >
+      <p className="mb-4 text-slate-500">View and track all your branch orders</p>
+
+      {/* Summary cards */}
+      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5">
+        {summaryCards.map((card) => (
+          <button key={card.label} type="button"
+            onClick={() => setStatusFilter(card.filter === "All" ? "All" : card.filter as BranchOrderStatus)}
+            className={`rounded-xl border bg-white p-4 text-left hover:border-[#0A3A92]/30 transition-colors ${statusFilter === card.filter || (card.filter === "All" && statusFilter === "All") ? "border-[#0A3A92]" : "border-slate-200"}`}>
+            <p className="text-sm text-slate-500">{card.label}</p>
+            <p className={`text-[32px] font-semibold leading-tight ${card.color}`}>{card.value}</p>
+          </button>
+        ))}
+      </div>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        {/* Filters */}
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <div className="relative w-full max-w-[300px]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search orders..."
+              className="h-10 w-full rounded-md border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-[#0A3A92]" />
+          </div>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "All" | BranchOrderStatus)}
+            className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]">
+            <option value="All">All Status</option>
+            <option value="Pending">Pending</option>
+            <option value="Approved">Approved</option>
+            <option value="In Transit">In Transit</option>
+            <option value="Delivered">Delivered</option>
+          </select>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] text-left text-sm">
+            <thead className="bg-[#F8FAFD] text-slate-500">
+              <tr>
+                <th className="px-3 py-3">Order ID</th>
+                <th className="px-3 py-3">Branch</th>
+                <th className="px-3 py-3">Date</th>
+                <th className="px-3 py-3">Items</th>
+                <th className="px-3 py-3">Amount</th>
+                <th className="px-3 py-3">Status</th>
+                <th className="px-3 py-3">Delivery Date</th>
+                <th className="px-3 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((row) => (
+                <tr key={row.orderId} className="border-t border-slate-100">
+                  <td className="px-3 py-3 font-semibold text-[#0A3A92]">{row.orderId}</td>
+                  <td className="px-3 py-3">{row.branchName}</td>
+                  <td className="px-3 py-3">{row.date}</td>
+                  <td className="px-3 py-3">{row.items} items</td>
+                  <td className="px-3 py-3 font-medium">&#8377;{row.amount.toLocaleString("en-IN")}</td>
+                  <td className="px-3 py-3">
+                    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusBadge(row.status)}`}>{row.status}</span>
+                  </td>
+                  <td className="px-3 py-3 text-slate-500">{row.deliveryDate || "—"}</td>
+                  <td className="px-3 py-3">
+                    <button type="button" className="rounded-md border border-slate-200 p-2 text-[#0A3A92] hover:bg-slate-50">
+                      <Eye className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {visible.length === 0 && (
+                <tr><td colSpan={8} className="px-3 py-8 text-center text-slate-500">No orders found.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {visibleCount < filtered.length && (
+          <div className="mt-4 text-center">
+            <button type="button" onClick={() => setVisibleCount((c) => c + 6)}
+              className="rounded-md bg-[#0A3A92] px-6 py-2.5 text-sm font-semibold text-white hover:bg-[#083173]">
+              Load More
+            </button>
+          </div>
+        )}
+      </section>
+    </ErpLayout>
+  );
+}

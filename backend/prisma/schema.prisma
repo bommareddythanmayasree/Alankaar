@@ -1,0 +1,306 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum UserRole {
+  ADMIN
+  WAREHOUSE_MANAGER
+  BRANCH_MANAGER
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum EmployeeRole {
+  CASHIER
+  SALES_STAFF
+  INVENTORY_STAFF
+  DELIVERY_STAFF
+}
+
+enum ProductCategory {
+  SWEETS
+  BAKERY
+  SNACKS
+  SEASONAL
+  BEVERAGES
+  OTHERS
+}
+
+enum InventoryStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+}
+
+enum StockLogAction {
+  CREATED
+  UPDATED
+  DELETED
+}
+
+enum OrderStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PACKED
+  DISPATCHED
+  IN_TRANSIT
+  DELIVERED
+}
+
+enum PaymentMethod {
+  UPI
+  CREDIT_CARD
+  DEBIT_CARD
+  NET_BANKING
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum NotificationTarget {
+  ADMIN
+  WAREHOUSE
+  BRANCH
+}
+
+enum NotificationType {
+  ORDER_APPROVED
+  ORDER_REJECTED
+  ORDER_DISPATCHED
+  ORDER_DELIVERED
+  NEW_ORDER_ALERT
+  LOW_STOCK_ALERT
+  REVENUE_ALERT
+  BRANCH_ALERT
+  INVENTORY_ALERT
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String?
+  role         UserRole
+
+  branchId     String?
+  branch       Branch?   @relation(fields: [branchId], references: [id])
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  stockLogs    StockLog[]
+  ordersPlaced Order[]   @relation("OrdersPlacedByUser")
+  notifications Notification[]
+}
+
+model Branch {
+  id          String       @id @default(cuid())
+  code        String       @unique
+  name        String
+  managerName String
+  address     String
+  phone       String
+  email       String
+  status      BranchStatus @default(ACTIVE)
+
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  users       User[]
+  employees   Employee[]
+  orders      Order[]
+  notifications Notification[]
+}
+
+model Employee {
+  id        String       @id @default(cuid())
+  branchId  String
+  branch    Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  name      String
+  phone     String
+  email     String
+  role      EmployeeRole
+
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model Product {
+  id          String          @id @default(cuid())
+  sku         String          @unique
+  name        String
+  category    ProductCategory
+  imageUrl    String?
+  description String?
+
+  sellingPrice Int            // stored in paise
+  gstPercent   Int            @default(5)
+
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  inventory   Inventory[]
+  orderItems  OrderItem[]
+  stockLogs   StockLog[]
+}
+
+model Inventory {
+  id               String          @id @default(cuid())
+  productId        String
+  product          Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  quantity         Int
+  reservedQuantity Int             @default(0)
+  unit             String
+
+  costPrice        Int             // paise
+  sellingPrice     Int             // paise (snapshot override)
+
+  batchNumber      String?
+  manufacturingDate DateTime?
+  expiryDate       DateTime?
+  supplier         String?
+  status           InventoryStatus @default(ACTIVE)
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  stockLogs        StockLog[]
+
+  @@index([productId])
+}
+
+model StockLog {
+  id          String         @id @default(cuid())
+  action      StockLogAction
+  productId   String
+  product     Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventoryId String?
+  inventory   Inventory?     @relation(fields: [inventoryId], references: [id], onDelete: SetNull)
+  userId      String?
+  user        User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  at          DateTime       @default(now())
+  meta        Json?
+
+  @@index([at])
+  @@index([productId])
+  @@index([userId])
+}
+
+model Order {
+  id             String       @id @default(cuid())
+  orderNo        String       @unique
+
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  placedByUserId String?
+  placedByUser   User?        @relation("OrdersPlacedByUser", fields: [placedByUserId], references: [id], onDelete: SetNull)
+
+  status         OrderStatus  @default(PENDING)
+  rejectionReason String?
+
+  subtotal       Int          // paise
+  gstAmount      Int          // paise
+  totalAmount    Int          // paise
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  items          OrderItem[]
+  payment        Payment?
+  invoice        Invoice?
+
+  @@index([branchId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id          String   @id @default(cuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  quantity    Int
+  unitPrice   Int      // paise snapshot
+  totalPrice  Int      // paise
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  orderId       String        @unique
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  transactionId String?       @unique
+
+  amount        Int           // paise
+  paidAt        DateTime?
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model Invoice {
+  id          String   @id @default(cuid())
+  orderId     String   @unique
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  invoiceNo   String   @unique
+  issuedAt    DateTime @default(now())
+
+  subtotal    Int
+  gstAmount   Int
+  totalAmount Int
+
+  pdfPath     String?
+}
+
+model Notification {
+  id         String            @id @default(cuid())
+  target     NotificationTarget
+  type       NotificationType
+  title      String
+  message    String
+
+  userId     String?
+  user       User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  branchId   String?
+  branch     Branch?           @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  isRead     Boolean           @default(false)
+  createdAt  DateTime          @default(now())
+}
+
+model AIRecommendation {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  impact      String   // "High Impact" etc (to match UI tags)
+  expectedValue Int?   // paise or count depending on card
+  periodLabel String?  // "June 2024", etc
+  createdAt   DateTime @default(now())
+}
