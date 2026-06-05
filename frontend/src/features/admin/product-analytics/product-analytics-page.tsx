@@ -17,12 +17,37 @@ const slowMovingProducts = [
   { name: "Mix Cookies", units: 64, decline: "-8%" },
 ];
 
-const topSellingProducts = [
-  { name: "Rasgulla", revenue: 235000 },
-  { name: "Kaju Katli", revenue: 180000 },
-  { name: "Gulab Jamun", revenue: 145000 },
-  { name: "Milk Cake", revenue: 120000 },
-  { name: "Dry Fruit Laddu", revenue: 60000 },
+const profitableProducts = [
+  {
+    name: "Kaju Katli",
+    revenue: 235000,
+    profit: 115000,
+    margin: 49,
+  },
+  {
+    name: "Rasgulla",
+    revenue: 180000,
+    profit: 85000,
+    margin: 47,
+  },
+  {
+    name: "Milk Bread",
+    revenue: 145000,
+    profit: 60000,
+    margin: 41,
+  },
+  {
+    name: "Gulab Jamun",
+    revenue: 120000,
+    profit: 44000,
+    margin: 37,
+  },
+  {
+    name: "Dry Fruit Laddu",
+    revenue: 60000,
+    profit: 18000,
+    margin: 30,
+  },
 ];
 
 const categoryDistribution = [
@@ -80,20 +105,69 @@ export function ProductAnalyticsPage() {
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-12">
         <section className="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-5">
-          <h3 className="mb-3 text-base font-semibold text-slate-900">Top Selling Products</h3>
-          <div className="space-y-3">
-            {topSellingProducts.map((item, index) => (
-              <div key={item.name} className="flex items-center justify-between rounded-lg bg-[#F8FAFD] px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white text-xs font-semibold text-[#0A3A92]">
-                    {index + 1}
-                  </span>
-                  <span className="text-sm font-medium">{item.name}</span>
-                </div>
-                <span className="text-sm font-semibold">{formatInr(item.revenue)}</span>
-              </div>
-            ))}
+          <h3 className="mb-4 text-base font-semibold text-slate-900">
+  Highest Margin Products
+</h3>
+
+<div className="space-y-3">
+  {profitableProducts.map((item, index) => {
+    const badgeColor =
+      item.margin >= 45
+        ? "bg-emerald-100 text-emerald-700"
+        : item.margin >= 35
+        ? "bg-amber-100 text-amber-700"
+        : "bg-rose-100 text-rose-700";
+
+    const barColor =
+      item.margin >= 45
+        ? "bg-emerald-500"
+        : item.margin >= 35
+        ? "bg-amber-500"
+        : "bg-rose-500";
+
+    return (
+      <div
+        key={item.name}
+        className="rounded-lg border border-slate-200 bg-[#F8FAFD] p-3"
+      >
+        <div className="mb-2 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white text-xs font-semibold text-[#0A3A92]">
+              {index + 1}
+            </span>
+
+            <span className="font-medium text-slate-900">
+              {item.name}
+            </span>
           </div>
+
+          <span
+            className={`rounded-full px-2 py-1 text-xs font-semibold ${badgeColor}`}
+          >
+            {item.margin}% Margin
+          </span>
+        </div>
+
+        <div className="mb-2 flex items-center justify-between text-xs text-slate-600">
+          <span>
+            Revenue: {formatInr(item.revenue)}
+          </span>
+
+          <span>
+            Profit: {formatInr(item.profit)}
+          </span>
+        </div>
+
+        <div className="h-2 rounded-full bg-slate-200">
+          <div
+            className={`h-2 rounded-full ${barColor}`}
+            style={{ width: `${item.margin}%` }}
+          />
+        </div>
+      </div>
+    );
+  })}
+</div>
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-3">

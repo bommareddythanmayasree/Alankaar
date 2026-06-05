@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, Eye, Search, X } from "lucide-react";
+import { Check, Search, X } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { WAREHOUSE_ORDER_VERIFICATION } from "../../../shared/data/warehouse-mock-data";
@@ -86,7 +86,7 @@ export function OrderVerificationPage() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overflow-y-visible">
             <table className="w-full min-w-[860px] text-left text-sm">
               <thead className="bg-[#F8FAFD] text-slate-500">
                 <tr>
@@ -101,8 +101,19 @@ export function OrderVerificationPage() {
               </thead>
               <tbody>
                 {filtered.map((order) => (
-                  <tr key={order.id} className="border-t border-slate-100">
-                    <td className="px-3 py-3 font-semibold text-[#1B4DB1]">{order.id}</td>
+                  <tr
+  key={order.id}
+  onClick={() => setSelectedId(order.id)}
+  className={`border-t border-slate-100 cursor-pointer transition-colors
+    ${
+      selectedId === order.id
+        ? "bg-[#EEF3FF] border-l-4 border-l-[#0A3A92]"
+        : "hover:bg-slate-50"
+    }`}
+>
+                    <td className="px-3 py-3 font-semibold text-[#1B4DB1] underline">
+  {order.id}
+</td>
                     <td className="px-3 py-3">{order.branch}</td>
                     <td className="px-3 py-3">{order.date}</td>
                     <td className="px-3 py-3">{order.itemsCount} items</td>
@@ -112,9 +123,6 @@ export function OrderVerificationPage() {
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-1">
-                        <button onClick={() => setSelectedId(order.id)} className="rounded p-2 text-slate-500 hover:bg-slate-100">
-                          <Eye className="h-4 w-4" />
-                        </button>
                         <button onClick={() => approveOrder(order.id)} disabled={order.status !== "Pending"} className="rounded p-2 text-emerald-700 hover:bg-emerald-50 disabled:opacity-30">
                           <Check className="h-4 w-4" />
                         </button>
@@ -135,9 +143,24 @@ export function OrderVerificationPage() {
           {selected ? (
             <>
               <div className="mb-3 rounded-md bg-[#F8FAFD] px-3 py-2 text-sm">
-                <p className="font-semibold text-slate-800">{selected.id}</p>
-                <p className="text-slate-600">{selected.branch}</p>
-              </div>
+  <p className="font-semibold text-slate-800">
+    {selected.id}
+  </p>
+
+  <p className="text-slate-600">
+    {selected.branch}
+  </p>
+
+  <div className="mt-2">
+    <span
+      className={`rounded-full px-2 py-1 text-xs font-semibold ${statusClass(
+        selected.status
+      )}`}
+    >
+      {selected.status}
+    </span>
+  </div>
+</div>
               <div className="space-y-2">
                 {selected.items.map((item) => {
                   const canApprove = item.available >= item.requested;

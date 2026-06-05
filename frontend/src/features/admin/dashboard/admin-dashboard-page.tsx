@@ -1,13 +1,14 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Bar,
-  BarChart,
   Line,
   LineChart,
   ResponsiveContainer,
   XAxis,
   YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend,
 } from "recharts";
 import { Building2, Sparkles, Store, UserCog } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
@@ -39,11 +40,11 @@ const revenueSeries = [
 ];
 
 const topProducts = [
-  ["Milk Bread", "₹5,25,000"],
-  ["Rasgulla", "₹4,80,000"],
-  ["Kaju Katli", "₹4,20,000"],
-  ["Veg Puff", "₹3,10,000"],
-  ["Gulab Jamun", "₹2,85,000"],
+  ["Milk Bread", "1,240 sold"],
+  ["Rasgulla", "1,120 sold"],
+  ["Kaju Katli", "980 sold"],
+  ["Veg Puff", "920 sold"],
+  ["Gulab Jamun", "850 sold"],
 ];
 
 export function AdminDashboardPage() {
@@ -99,6 +100,40 @@ export function AdminDashboardPage() {
     ];
   }, []);
 
+  const [showAllActivities, setShowAllActivities] = useState(false);
+
+const activities = [
+  {
+    icon: "🟢",
+    text: "Order ORD-2458 approved",
+    time: "2 mins ago",
+  },
+  {
+    icon: "🟡",
+    text: "Inventory updated for Milk Bread",
+    time: "10 mins ago",
+  },
+  {
+    icon: "🔵",
+    text: "Dispatch completed to BenzCircle Branch",
+    time: "25 mins ago",
+  },
+  {
+    icon: "🟣",
+    text: "New branch manager assigned at Gayathri Nagar",
+    time: "1 hour ago",
+  },
+  {
+    icon: "🟢",
+    text: "Revenue report generated",
+    time: "2 hours ago",
+  },
+];
+
+const visibleActivities = showAllActivities
+  ? activities
+  : activities.slice(0, 3);
+
   return (
     <ErpLayout
       sidebarItems={buildSidebar(ADMIN_NAV, [...ADMIN_SIDEBAR_LABELS], "Dashboard")}
@@ -133,23 +168,59 @@ export function AdminDashboardPage() {
 
           <div className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={revenueSeries}>
-                <XAxis dataKey="day" />
-                <YAxis />
-                <Line
-                  type="monotone"
-                  dataKey="thisYear"
-                  stroke="#2B59FF"
-                  strokeWidth={3}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="lastYear"
-                  stroke="#6A8BE7"
-                  strokeWidth={2}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+  <LineChart
+    data={revenueSeries}
+    margin={{ top: 10, right: 20, left: 0, bottom: 5 }}
+  >
+    <CartesianGrid
+      strokeDasharray="3 3"
+      stroke="#E5E7EB"
+    />
+
+    <XAxis
+      dataKey="day"
+      tick={{ fontSize: 11 }}
+      axisLine={false}
+      tickLine={false}
+    />
+
+    <YAxis
+      tick={{ fontSize: 11 }}
+      axisLine={false}
+      tickLine={false}
+    />
+
+    <Tooltip
+      contentStyle={{
+        borderRadius: "10px",
+        border: "1px solid #E2E8F0",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+      }}
+    />
+
+    <Legend />
+
+    <Line
+      type="monotone"
+      dataKey="thisYear"
+      name="This Year"
+      stroke="#2B59FF"
+      strokeWidth={3}
+      activeDot={{ r: 8 }}
+      animationDuration={1200}
+    />
+
+    <Line
+      type="monotone"
+      dataKey="lastYear"
+      name="Last Year"
+      stroke="#6A8BE7"
+      strokeWidth={2}
+      activeDot={{ r: 6 }}
+      animationDuration={1200}
+    />
+  </LineChart>
+</ResponsiveContainer>
           </div>
         </section>
 
@@ -179,30 +250,39 @@ export function AdminDashboardPage() {
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-3">
-          <h3 className="mb-3 text-base font-semibold">
-            Recent Activities
-          </h3>
+         <h3 className="mb-3 text-base font-semibold">
+  Recent Activities
+</h3>
 
-          <div className="space-y-3 text-sm text-slate-700">
-            <p>Branch order ORD-2458 approved</p>
-            <p>Inventory updated for Milk Bread</p>
-            <p>Dispatch completed to Guntur Branch</p>
-            <p>New branch manager assigned at Vizag</p>
-          </div>
+<div className="space-y-3">
+  {visibleActivities.map((activity, index) => (
+    <div
+      key={index}
+      className="flex items-start justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"
+    >
+      <div className="flex items-start gap-2">
+        <span>{activity.icon}</span>
 
-          <div className="mt-4 h-[90px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={revenueSeries}>
-                <XAxis dataKey="day" hide />
-                <YAxis hide />
-                <Bar
-                  dataKey="thisYear"
-                  fill="#0A3A92"
-                  radius={4}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+        <span className="text-sm text-slate-700">
+          {activity.text}
+        </span>
+      </div>
+
+      <span className="whitespace-nowrap text-xs text-slate-400">
+        {activity.time}
+      </span>
+    </div>
+  ))}
+
+  <button
+    onClick={() => setShowAllActivities(!showAllActivities)}
+    className="mt-2 w-full rounded-lg border border-[#0A3A92]/20 py-2 text-sm font-medium text-[#0A3A92] hover:bg-[#0A3A92]/5"
+  >
+    {showAllActivities
+      ? "Show Less"
+      : "View More Activities"}
+  </button>
+</div>
         </section>
       </div>
     </ErpLayout>

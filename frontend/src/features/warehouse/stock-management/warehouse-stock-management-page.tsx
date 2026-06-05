@@ -74,7 +74,7 @@ export function WarehouseStockManagementPage() {
 
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
-      const bySearch = [row.id, row.productName, row.category, row.supplier].join(" ").toLowerCase().includes(search.toLowerCase());
+      const bySearch = [row.id, row.productName, row.category].join(" ").toLowerCase().includes(search.toLowerCase());
       const byCategory = category === "All Categories" ? true : row.category === category;
       return bySearch && byCategory;
     });
@@ -102,7 +102,7 @@ export function WarehouseStockManagementPage() {
   };
 
   const saveForm = () => {
-    if (!form.productName || !form.supplier) return;
+    if (!form.productName) return;
     if (editingId) {
       setRows((prev) => prev.map((r) => (r.id === editingId ? { ...r, ...form } : r)));
     } else {
@@ -145,7 +145,7 @@ export function WarehouseStockManagementPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1200px] text-left text-sm">
+          <table className="w-full min-w-[1050px] text-left text-sm">
             <thead className="bg-[#F8FAFD] text-slate-500">
               <tr>
                 <th className="px-3 py-3">Product ID</th>
@@ -155,7 +155,6 @@ export function WarehouseStockManagementPage() {
                 <th className="px-3 py-3">Min / Max</th>
                 <th className="px-3 py-3">Cost Price</th>
                 <th className="px-3 py-3">Selling Price</th>
-                <th className="px-3 py-3">Supplier</th>
                 <th className="px-3 py-3">Expiry</th>
                 <th className="px-3 py-3">Indicator</th>
                 <th className="px-3 py-3">Actions</th>
@@ -173,7 +172,6 @@ export function WarehouseStockManagementPage() {
                     <td className="px-3 py-3 text-slate-500">{row.minimumStock} / {row.maximumStock}</td>
                     <td className="px-3 py-3">&#8377;{row.costPrice}</td>
                     <td className="px-3 py-3">&#8377;{row.sellingPrice}</td>
-                    <td className="px-3 py-3">{row.supplier}</td>
                     <td className="px-3 py-3 text-slate-600">{row.expiryDate}</td>
                     <td className="px-3 py-3">
                       {indicator ? (
@@ -251,9 +249,6 @@ export function WarehouseStockManagementPage() {
               <Field label="Expiry Date">
                 <input type="date" className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.expiryDate} onChange={(e) => setForm((s) => ({ ...s, expiryDate: e.target.value }))} />
               </Field>
-              <Field label="Supplier">
-                <input className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.supplier} onChange={(e) => setForm((s) => ({ ...s, supplier: e.target.value }))} />
-              </Field>
               <Field label="Status">
                 <select className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.status} onChange={(e) => setForm((s) => ({ ...s, status: e.target.value as StockStatus }))}>
                   <option value="Active">Active</option>
@@ -285,7 +280,6 @@ export function WarehouseStockManagementPage() {
               <Detail label="Maximum Stock" value={`${viewing.maximumStock}`} />
               <Detail label="Cost Price" value={`Rs.${viewing.costPrice}`} />
               <Detail label="Selling Price" value={`Rs.${viewing.sellingPrice}`} />
-              <Detail label="Supplier" value={viewing.supplier} />
               <Detail label="Batch Number" value={viewing.batchNumber} />
               <Detail label="Expiry Date" value={viewing.expiryDate} />
               <Detail label="Status" value={viewing.status} />

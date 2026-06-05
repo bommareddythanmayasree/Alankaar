@@ -335,6 +335,42 @@ export const WAREHOUSE_ORDER_VERIFICATION = [
     status: "Approved" as const,
     items: [{ name: "Dry Fruit Laddu", requested: 50, available: 120 }],
   },
+  {
+  id: "ORD-1004",
+  branch: "Benz Circle",
+  date: "Jun 2, 2026",
+  itemsCount: 10,
+  amount: 9840,
+  status: "Pending",
+  items: [
+    { name: "Milk Cake", requested: 80, available: 120 },
+    { name: "Butter Biscuit", requested: 50, available: 65 }
+  ]
+},
+{
+  id: "ORD-1005",
+  branch: "Patamata",
+  date: "Jun 1, 2026",
+  itemsCount: 14,
+  amount: 12750,
+  status: "Pending",
+  items: [
+    { name: "Rasmalai", requested: 60, available: 90 },
+    { name: "Fruit Cake", requested: 40, available: 55 }
+  ]
+},
+{
+  id: "ORD-1006",
+  branch: "Narasaraopet",
+  date: "May 31, 2026",
+  itemsCount: 9,
+  amount: 7650,
+  status: "Approved",
+  items: [
+    { name: "Dry Fruit Laddu", requested: 35, available: 80 },
+    { name: "Veg Puff", requested: 75, available: 120 }
+  ]
+},
 ];
 
 export const WAREHOUSE_INVOICE_DATA = [

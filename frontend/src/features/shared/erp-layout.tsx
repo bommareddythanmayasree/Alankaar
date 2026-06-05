@@ -196,17 +196,40 @@ export function ErpLayout({
               {title ? <h1 className="text-[34px] font-semibold text-[#111827]">{title}</h1> : null}
             </div>
             <div className="flex items-center gap-4">
-              <button className="text-slate-600 hover:text-slate-800">
-                <Home className="h-5 w-5" />
-              </button>
-              <button className="relative text-slate-600 hover:text-slate-800">
-                <Bell className="h-5 w-5" />
-                <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-red-500" />
-              </button>
-              <button className="text-slate-600 hover:text-slate-800">
-                <Settings className="h-5 w-5" />
-              </button>
-            </div>
+  <button
+    onClick={() => {
+      const portal = location.pathname.split("/")[1];
+      navigate(`/${portal}/dashboard`);
+    }}
+    className="text-slate-600 transition hover:text-[#0A3A92]"
+    title="Dashboard"
+  >
+    <Home className="h-5 w-5" />
+  </button>
+
+  <button
+    onClick={() => {
+      const portal = location.pathname.split("/")[1];
+      navigate(`/${portal}/notifications`);
+    }}
+    className="relative text-slate-600 transition hover:text-[#0A3A92]"
+    title="Notifications"
+  >
+    <Bell className="h-5 w-5" />
+    <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-red-500" />
+  </button>
+
+  <button
+    onClick={() => {
+      const portal = location.pathname.split("/")[1];
+      navigate(`/${portal}/settings`);
+    }}
+    className="text-slate-600 transition hover:text-[#0A3A92]"
+    title="Settings"
+  >
+    <Settings className="h-5 w-5" />
+  </button>
+</div>
           </header>
           {children}
         </main>
