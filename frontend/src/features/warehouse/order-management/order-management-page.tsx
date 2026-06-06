@@ -39,13 +39,6 @@ function statusClass(status: LifecycleStatus) {
   return "bg-green-100 text-green-700";
 }
 
-/** Map verification order status to management lifecycle status */
-function toLifecycleStatus(status: string): LifecycleStatus {
-  if (status === "Approved" || status === "Partial") return "Approved";
-  if (status === "Rejected") return "Pending";
-  return "Pending";
-}
-
 export function OrderManagementPage() {
   const { orders: verificationOrders, dispatchOrder } = useWarehouse();
   const [localOrders, setLocalOrders] = useState<ManagedOrder[]>(WAREHOUSE_ORDER_MANAGEMENT as ManagedOrder[]);
