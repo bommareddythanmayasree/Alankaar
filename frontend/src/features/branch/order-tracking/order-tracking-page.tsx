@@ -9,6 +9,7 @@ import { useWarehouseForBranch } from "../../../app/warehouse/warehouse-context"
 type TrackingStatus =
   | "Pending Approval"
   | "Approved"
+  | "Rejected"
   | "Payment Completed"
   | "Packed"
   | "Dispatched"
