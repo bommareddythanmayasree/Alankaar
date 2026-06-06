@@ -105,7 +105,7 @@ export function ErpLayout({
     "object-contain transition-all duration-300",
     collapsed
       ? "w-[50px] h-[50px]"
-      : "w-[210px] h-[80] scale-150"
+      : "w-[210px] h-[80px] scale-150"
   )}
 />
 </div>

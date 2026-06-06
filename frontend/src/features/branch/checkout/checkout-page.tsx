@@ -1,5 +1,5 @@
 ﻿import { useMemo, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { Clock, CheckCircle2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { ErpLayout } from "../../shared/erp-layout";
 import { BRANCH_NAV, buildSidebar } from "../../../app/navigation/sidebars";
@@ -38,7 +38,7 @@ export function CheckoutPage() {
     if (cartItems.length === 0) return;
     setIsPaying(true);
     await new Promise((resolve) => setTimeout(resolve, 1200));
-    const order = placeOrder(cartItems);
+    const order = placeOrder(cartItems, method);
     clearCart();
     setOrderId(order.orderId);
     setIsPaying(false);
@@ -52,7 +52,12 @@ export function CheckoutPage() {
         <section className="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-8">
           <h3 className="mb-3 text-xl font-semibold">Order Summary</h3>
           {cartItems.length === 0 && !orderId ? (
-            <p className="py-6 text-center text-slate-500">Your cart is empty. <button onClick={() => navigate("/branch/product-catalog")} className="text-[#0A3A92] font-semibold">Go to catalog</button></p>
+            <p className="py-6 text-center text-slate-500">
+              Your cart is empty.{" "}
+              <button onClick={() => navigate("/branch/product-catalog")} className="text-[#0A3A92] font-semibold">
+                Go to catalog
+              </button>
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[600px] text-left text-sm">
@@ -81,10 +86,20 @@ export function CheckoutPage() {
           {!orderId && (
             <div className="mt-5 rounded-lg border border-slate-200 bg-[#F8FAFD] p-4">
               <h4 className="mb-3 text-base font-semibold">Select Payment Method</h4>
+              <p className="mb-3 text-xs text-slate-500">
+                Payment will be processed after warehouse approves your order.
+              </p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {(["UPI", "Credit Card", "Debit Card", "Net Banking", "Bank Transfer"] as PaymentMethod[]).map((pm) => (
-                  <button key={pm} onClick={() => setMethod(pm)}
-                    className={`h-10 rounded-md border px-3 text-sm font-semibold ${method === pm ? "border-[#0A3A92] bg-[#EEF4FF] text-[#0A3A92]" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+                  <button
+                    key={pm}
+                    onClick={() => setMethod(pm)}
+                    className={`h-10 rounded-md border px-3 text-sm font-semibold ${
+                      method === pm
+                        ? "border-[#0A3A92] bg-[#EEF4FF] text-[#0A3A92]"
+                        : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
                     {pm}
                   </button>
                 ))}
@@ -119,29 +134,48 @@ export function CheckoutPage() {
               </div>
             )}
           </div>
+
           {!orderId ? (
             <button
               onClick={handlePlaceOrder}
               disabled={isPaying || cartItems.length === 0}
               className="mt-5 h-11 w-full rounded-md bg-[#0A3A92] text-sm font-semibold text-white disabled:opacity-60 hover:bg-[#083173]"
             >
-              {isPaying ? "Processing..." : "Place Order"}
+              {isPaying ? "Submitting..." : "Place Order"}
             </button>
           ) : (
-            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-              <div className="mb-2 flex items-center gap-2 text-emerald-700">
-                <CheckCircle2 className="h-5 w-5" />
-                <p className="font-semibold">Order Placed Successfully</p>
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <div className="mb-2 flex items-center gap-2 text-amber-700">
+                <Clock className="h-5 w-5" />
+                <p className="font-semibold">Order Submitted</p>
               </div>
-              <p className="text-sm text-slate-700"><span className="font-semibold">Order ID:</span> {orderId}</p>
+              <p className="text-sm text-slate-700">
+                <span className="font-semibold">Order ID:</span> {orderId}
+              </p>
+              <p className="mt-1 text-xs text-slate-600">
+                Waiting for warehouse approval. You'll be notified once approved.
+              </p>
               <div className="mt-3 flex flex-col gap-2">
-                <button onClick={() => navigate("/branch/order-tracking")} className="h-9 w-full rounded-md bg-[#0A3A92] text-xs font-semibold text-white hover:bg-[#083173]">
+                <button
+                  onClick={() => navigate("/branch/order-tracking")}
+                  className="h-9 w-full rounded-md bg-[#0A3A92] text-xs font-semibold text-white hover:bg-[#083173]"
+                >
                   Track Order
                 </button>
-                <button onClick={() => navigate("/branch/order-history")} className="h-9 w-full rounded-md border border-[#0A3A92] text-xs font-semibold text-[#0A3A92] hover:bg-[#EEF4FF]">
+                <button
+                  onClick={() => navigate("/branch/order-history")}
+                  className="h-9 w-full rounded-md border border-[#0A3A92] text-xs font-semibold text-[#0A3A92] hover:bg-[#EEF4FF]"
+                >
                   View Order History
                 </button>
               </div>
+            </div>
+          )}
+
+          {orderId && (
+            <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              <CheckCircle2 className="inline h-3.5 w-3.5 text-emerald-500 mr-1" />
+              Payment method <span className="font-semibold text-slate-700">{method}</span> saved. You can pay after approval.
             </div>
           )}
         </aside>

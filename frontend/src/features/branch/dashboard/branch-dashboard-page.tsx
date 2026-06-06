@@ -10,6 +10,7 @@ import {
   BRANCH_SUMMARY,
   BRANCH_RECENT_ORDERS,
 } from "../../../shared/data/branch-mock-data";
+import { useNavigate } from "react-router-dom";
 
 const SIDEBAR_LABELS = [
   "Dashboard",
@@ -42,6 +43,9 @@ export function BranchDashboardPage() {
   const now = new Date();
   const hour = now.getHours();
   const greeting = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
+
+const navigate = useNavigate();
+
 
   return (
     <ErpLayout
@@ -94,7 +98,18 @@ export function BranchDashboardPage() {
             <tbody>
               {BRANCH_RECENT_ORDERS.map((r) => (
                 <tr key={r.id} className="border-t border-slate-100">
-                  <td className="px-3 py-3 font-semibold text-[#1B4DB1]">{r.id}</td>
+                  <td className="px-3 py-3">
+  <button
+    onClick={() =>
+      navigate("/branch/order-history", {
+        state: { selectedOrderId: r.id },
+      })
+    }
+    className="font-semibold text-[#1B4DB1] hover:underline"
+  >
+    {r.id}
+  </button>
+</td>
                   <td className="px-3 py-3">{r.date}</td>
                   <td className="px-3 py-3">{r.items} items</td>
                   <td className="px-3 py-3">&#8377;{r.amount.toLocaleString("en-IN")}</td>
@@ -111,13 +126,11 @@ export function BranchDashboardPage() {
 
         {/* Branch Performance Summary */}
         <section className="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-4">
-          <h3 className="mb-4 text-lg font-semibold">Branch Performance</h3>
+          <h3 className="mb-4 text-lg font-semibold">Branch Monthly Performance</h3>
           <div className="space-y-3">
             <PerfRow label="Orders This Month" value={String(s.ordersThisMonth)} />
             <PerfRow label="Monthly Purchase Value" value={`&#8377;${s.monthlyPurchaseValue.toLocaleString("en-IN")}`} />
             <PerfRow label="Pending Deliveries" value={String(s.pendingDeliveries)} />
-            <PerfRow label="Inventory Value" value={s.inventoryValue} />
-            <PerfRow label="Cart Value" value={s.cartValue} />
           </div>
 
           <div className="mt-5 rounded-lg bg-[#F0F4FF] p-4">

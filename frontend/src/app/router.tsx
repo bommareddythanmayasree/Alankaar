@@ -30,15 +30,28 @@ import { OrderHistoryPage } from "../features/branch/order-history/order-history
 import { BranchNotificationsPage } from "../features/branch/notifications/branch-notifications-page";
 import { BranchSettingsPage } from "../features/branch/settings/branch-settings-page";
 import { BranchProvider } from "./branch/branch-context";
+import { WarehouseProvider } from "./warehouse/warehouse-context";
 
 function AppShell({ children }: { children: React.ReactNode }) {
   return <AuthProvider>{children}</AuthProvider>;
 }
 
+/** Warehouse routes get WarehouseProvider */
+function WarehouseShell({ children }: { children: React.ReactNode }) {
+  return (
+    <AppShell>
+      <WarehouseProvider>{children}</WarehouseProvider>
+    </AppShell>
+  );
+}
+
+/** Branch routes get both providers — reads products from WarehouseProvider */
 function BranchShell({ children }: { children: React.ReactNode }) {
   return (
     <AppShell>
-      <BranchProvider>{children}</BranchProvider>
+      <WarehouseProvider>
+        <BranchProvider>{children}</BranchProvider>
+      </WarehouseProvider>
     </AppShell>
   );
 }
@@ -80,11 +93,11 @@ export const router = createBrowserRouter([
   {
     path: "/warehouse/dashboard",
     element: (
-      <AppShell>
+      <WarehouseShell>
         <Protected role="WAREHOUSE_MANAGER">
           <WarehouseDashboardPage />
         </Protected>
-      </AppShell>
+      </WarehouseShell>
     ),
   },
   {
@@ -170,81 +183,81 @@ export const router = createBrowserRouter([
   {
     path: "/warehouse/stock-management",
     element: (
-      <AppShell>
+      <WarehouseShell>
         <Protected role="WAREHOUSE_MANAGER">
           <WarehouseStockManagementPage />
         </Protected>
-      </AppShell>
+      </WarehouseShell>
     ),
   },
   {
     path: "/warehouse/stock-logs",
     element: (
-      <AppShell>
+      <WarehouseShell>
         <Protected role="WAREHOUSE_MANAGER">
           <StockLogsPage />
         </Protected>
-      </AppShell>
+      </WarehouseShell>
     ),
   },
   {
     path: "/warehouse/order-verification",
     element: (
-      <AppShell>
+      <WarehouseShell>
         <Protected role="WAREHOUSE_MANAGER">
           <OrderVerificationPage />
         </Protected>
-      </AppShell>
+      </WarehouseShell>
     ),
   },
   {
     path: "/warehouse/order-management",
     element: (
-      <AppShell>
+      <WarehouseShell>
         <Protected role="WAREHOUSE_MANAGER">
           <OrderManagementPage />
         </Protected>
-      </AppShell>
+      </WarehouseShell>
     ),
   },
   {
     path: "/warehouse/invoice-generation",
     element: (
-      <AppShell>
+      <WarehouseShell>
         <Protected role="WAREHOUSE_MANAGER">
           <InvoiceGenerationPage />
         </Protected>
-      </AppShell>
+      </WarehouseShell>
     ),
   },
   {
     path: "/warehouse/dispatch-tracking",
     element: (
-      <AppShell>
+      <WarehouseShell>
         <Protected role="WAREHOUSE_MANAGER">
           <DispatchTrackingPage />
         </Protected>
-      </AppShell>
+      </WarehouseShell>
     ),
   },
   {
     path: "/warehouse/notifications",
     element: (
-      <AppShell>
+      <WarehouseShell>
         <Protected role="WAREHOUSE_MANAGER">
           <WarehouseNotificationsPage />
         </Protected>
-      </AppShell>
+      </WarehouseShell>
     ),
   },
   {
     path: "/warehouse/settings",
     element: (
-      <AppShell>
+      <WarehouseShell>
         <Protected role="WAREHOUSE_MANAGER">
           <WarehouseSettingsPage />
         </Protected>
-      </AppShell>
+      </WarehouseShell>
     ),
   },
   {

@@ -3,7 +3,7 @@ import { Eye, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { BRANCH_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 
-type EmployeeRole = "Cashier" | "Sales Staff" | "Inventory Staff" | "Delivery Staff";
+type EmployeeRole = "Cashier" | "Sales Staff" | "Inventory Staff" ;
 type EmployeeStatus = "Active" | "Inactive";
 
 type Employee = {
@@ -31,7 +31,7 @@ const initialEmployees: Employee[] = [
   { id: "EMP-101", name: "Ravi Kumar", email: "ravi.gandhinagar@alankarsweets.com", phone: "+91 98765 12001", role: "Cashier", status: "Active" },
   { id: "EMP-102", name: "Meena Devi", email: "meena.gandhinagar@alankarsweets.com", phone: "+91 98765 12002", role: "Sales Staff", status: "Active" },
   { id: "EMP-103", name: "Kiran Reddy", email: "kiran.gandhinagar@alankarsweets.com", phone: "+91 98765 12003", role: "Inventory Staff", status: "Active" },
-  { id: "EMP-104", name: "Arjun Rao", email: "arjun.gandhinagar@alankarsweets.com", phone: "+91 98765 12004", role: "Delivery Staff", status: "Inactive" },
+  { id: "EMP-104", name: "Arjun Rao", email: "arjun.gandhinagar@alankarsweets.com", phone: "+91 98765 12004", role: "Sales Staff", status: "Inactive" },
 ];
 
 type FormState = Omit<Employee, "id">;
@@ -90,7 +90,6 @@ export function EmployeeManagementPage() {
             <option>Cashier</option>
             <option>Sales Staff</option>
             <option>Inventory Staff</option>
-            <option>Delivery Staff</option>
           </select>
           <button onClick={openCreate} className="inline-flex h-10 items-center gap-2 rounded-md bg-[#0A3A92] px-4 text-sm font-semibold text-white">
             <Plus className="h-4 w-4" /> Add Employee
@@ -149,7 +148,7 @@ export function EmployeeManagementPage() {
               <Field label="Phone"><input className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.phone} onChange={(e) => setForm((s) => ({ ...s, phone: e.target.value }))} /></Field>
               <Field label="Role">
                 <select className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.role} onChange={(e) => setForm((s) => ({ ...s, role: e.target.value as EmployeeRole }))}>
-                  <option>Cashier</option><option>Sales Staff</option><option>Inventory Staff</option><option>Delivery Staff</option>
+                  <option>Cashier</option><option>Sales Staff</option><option>Inventory Staff</option>
                 </select>
               </Field>
               <Field label="Status">

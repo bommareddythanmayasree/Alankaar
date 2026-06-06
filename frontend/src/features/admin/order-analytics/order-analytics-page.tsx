@@ -69,21 +69,7 @@ export function OrderAnalyticsPage() {
     <ErpLayout
       sidebarItems={buildSidebar(ADMIN_NAV, [...ADMIN_SIDEBAR_LABELS], "Order Analytics")}
     >
-      <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
-        <select className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-[#0A3A92]">
-          <option>This Month</option>
-          <option>Last Month</option>
-          <option>This Year</option>
-        </select>
-        <select className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-[#0A3A92]">
-          <option>All Branches</option>
-          <option>Gandhi Nagar</option>
-          <option>Benz Circle</option>
-          <option>Ayyappa Nagar</option>
-          <option>Gayatri Nagar</option>
-          <option>Patamata</option>
-        </select>
-      </div>
+      
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         {orderSummary.map((card) => (

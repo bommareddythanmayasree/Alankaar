@@ -17,10 +17,11 @@ const SIDEBAR_LABELS = [
   "Settings",
 ] as const;
 
-function statusBadge(status: BranchOrderStatus) {
+function statusBadge(status: string) {
   if (status === "Delivered") return "bg-emerald-100 text-emerald-700";
-  if (status === "Approved") return "bg-indigo-100 text-indigo-700";
+  if (status === "Approved" || status === "Payment Completed") return "bg-indigo-100 text-indigo-700";
   if (status === "In Transit") return "bg-sky-100 text-sky-700";
+  if (status === "Rejected") return "bg-rose-100 text-rose-700";
   return "bg-amber-100 text-amber-700";
 }
 
@@ -39,7 +40,7 @@ const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
       date: o.orderDate,
       items: o.items.reduce((sum, i) => sum + i.qty, 0),
       amount: o.amount,
-      status: o.currentStatus as BranchOrderStatus,
+      status: o.currentStatus as string,
       deliveryDate: o.expectedDelivery,
     }));
     return [...mapped, ...BRANCH_HISTORY_ORDERS];
@@ -59,8 +60,8 @@ const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
 
   const summaryCards = [
     { label: "All Orders", value: allOrders.length, color: "text-[#0A3A92]", filter: "All" as const },
-    { label: "Pending", value: allOrders.filter((o) => o.status === "Pending").length, color: "text-amber-600", filter: "Pending" as BranchOrderStatus },
-    { label: "Approved", value: allOrders.filter((o) => o.status === "Approved").length, color: "text-indigo-600", filter: "Approved" as BranchOrderStatus },
+    { label: "Pending", value: allOrders.filter((o) => o.status === "Pending" || o.status === "Pending Approval").length, color: "text-amber-600", filter: "Pending" as BranchOrderStatus },
+    { label: "Approved", value: allOrders.filter((o) => o.status === "Approved" || o.status === "Payment Completed").length, color: "text-indigo-600", filter: "Approved" as BranchOrderStatus },
     { label: "In Transit", value: allOrders.filter((o) => o.status === "In Transit").length, color: "text-sky-600", filter: "In Transit" as BranchOrderStatus },
     { label: "Delivered", value: allOrders.filter((o) => o.status === "Delivered").length, color: "text-emerald-600", filter: "Delivered" as BranchOrderStatus },
   ];

@@ -1,26 +1,10 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { Eye, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { Eye, ImageIcon, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
-import { WAREHOUSE_STOCK_ITEMS, type StockCategory } from "../../../shared/data/warehouse-mock-data";
-
-type StockStatus = "Active" | "Inactive";
-
-type StockItem = {
-  id: string;
-  productName: string;
-  category: StockCategory;
-  currentStock: number;
-  minimumStock: number;
-  maximumStock: number;
-  unit: string;
-  costPrice: number;
-  sellingPrice: number;
-  supplier: string;
-  status: StockStatus;
-  batchNumber: string;
-  expiryDate: string;
-};
+import { useWarehouse, type StockItem, type StockStatus } from "../../../app/warehouse/warehouse-context";
+import { PRODUCT_IMAGE_MAP, getProductImage } from "../../../shared/utils/product-images";
+import type { StockCategory } from "../../../shared/data/warehouse-mock-data";
 
 type FormState = Omit<StockItem, "id">;
 
@@ -37,9 +21,16 @@ const emptyForm: FormState = {
   batchNumber: "",
   expiryDate: "",
   status: "Active",
+  performedBy: "Warehouse Admin",
+  image: "",
 };
 
 const CATEGORIES: StockCategory[] = ["Bakery Products", "Sweets", "Snacks", "Beverages", "Seasonal Products"];
+
+/** Available product names from the image map for "select existing image" */
+const AVAILABLE_IMAGE_NAMES = Object.keys(PRODUCT_IMAGE_MAP).map(
+  (k) => k.charAt(0).toUpperCase() + k.slice(1)
+);
 
 const SIDEBAR_LABELS = [
   "Dashboard",
@@ -56,61 +47,80 @@ const SIDEBAR_LABELS = [
 function stockIndicator(item: StockItem): { label: string; cls: string } | null {
   if (item.currentStock === 0) return { label: "Out of Stock", cls: "bg-red-100 text-red-700" };
   if (item.currentStock <= item.minimumStock) return { label: "Low Stock", cls: "bg-amber-100 text-amber-700" };
-  const today = new Date();
-  const expiry = new Date(item.expiryDate);
-  const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-  if (daysLeft <= 30) return { label: "Near Expiry", cls: "bg-orange-100 text-orange-700" };
+  if (item.expiryDate) {
+    const today = new Date();
+    const expiry = new Date(item.expiryDate);
+    const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysLeft <= 30) return { label: "Near Expiry", cls: "bg-orange-100 text-orange-700" };
+  }
   return null;
 }
 
+const PLACEHOLDER = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' fill='%23F1F5F9'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='10' fill='%2394A3B8'%3ENo Image%3C/text%3E%3C/svg%3E";
+
 export function WarehouseStockManagementPage() {
-  const [rows, setRows] = useState<StockItem[]>(WAREHOUSE_STOCK_ITEMS as StockItem[]);
+  const { products, addProduct, updateProduct, deleteProduct } = useWarehouse();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All Categories");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<StockItem | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [imageMode, setImageMode] = useState<"select" | "upload">("select");
+  const [imageSelectQuery, setImageSelectQuery] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredRows = useMemo(() => {
-    return rows.filter((row) => {
+    return products.filter((row) => {
       const bySearch = [row.id, row.productName, row.category].join(" ").toLowerCase().includes(search.toLowerCase());
       const byCategory = category === "All Categories" ? true : row.category === category;
       return bySearch && byCategory;
     });
-  }, [rows, search, category]);
+  }, [products, search, category]);
 
-  const openCreate = () => { setEditingId(null); setForm(emptyForm); setDrawerOpen(true); };
+  const openCreate = () => {
+    setEditingId(null);
+    setForm({ ...emptyForm, image: "" });
+    setImageMode("select");
+    setImageSelectQuery("");
+    setDrawerOpen(true);
+  };
 
   const openEdit = (row: StockItem) => {
     setEditingId(row.id);
-    setForm({
-      productName: row.productName,
-      category: row.category,
-      currentStock: row.currentStock,
-      minimumStock: row.minimumStock,
-      maximumStock: row.maximumStock,
-      unit: row.unit,
-      costPrice: row.costPrice,
-      sellingPrice: row.sellingPrice,
-      supplier: row.supplier,
-      batchNumber: row.batchNumber,
-      expiryDate: row.expiryDate,
-      status: row.status,
-    });
+    setForm({ ...row });
+    setImageMode("select");
+    setImageSelectQuery("");
     setDrawerOpen(true);
   };
 
   const saveForm = () => {
     if (!form.productName) return;
+    const finalImage = form.image || getProductImage(form.productName);
+    const finalForm = { ...form, image: finalImage };
     if (editingId) {
-      setRows((prev) => prev.map((r) => (r.id === editingId ? { ...r, ...form } : r)));
+      updateProduct(editingId, finalForm);
     } else {
-      const nextId = `PRD-${String(1000 + rows.length + 1)}`;
-      setRows((prev) => [{ id: nextId, ...form }, ...prev]);
+      addProduct(finalForm);
     }
     setDrawerOpen(false);
   };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      setForm((s) => ({ ...s, image: dataUrl }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const filteredImageNames = useMemo(() => {
+    const q = imageSelectQuery.toLowerCase();
+    return AVAILABLE_IMAGE_NAMES.filter((n) => n.toLowerCase().includes(q));
+  }, [imageSelectQuery]);
 
   return (
     <ErpLayout
@@ -145,9 +155,10 @@ export function WarehouseStockManagementPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1050px] text-left text-sm">
+          <table className="w-full min-w-[1100px] text-left text-sm">
             <thead className="bg-[#F8FAFD] text-slate-500">
               <tr>
+                <th className="px-3 py-3">Image</th>
                 <th className="px-3 py-3">Product ID</th>
                 <th className="px-3 py-3">Product Name</th>
                 <th className="px-3 py-3">Category</th>
@@ -155,6 +166,7 @@ export function WarehouseStockManagementPage() {
                 <th className="px-3 py-3">Min / Max</th>
                 <th className="px-3 py-3">Cost Price</th>
                 <th className="px-3 py-3">Selling Price</th>
+                <th className="px-3 py-3">Performed By</th>
                 <th className="px-3 py-3">Expiry</th>
                 <th className="px-3 py-3">Indicator</th>
                 <th className="px-3 py-3">Actions</th>
@@ -165,6 +177,14 @@ export function WarehouseStockManagementPage() {
                 const indicator = stockIndicator(row);
                 return (
                   <tr key={row.id} className="border-t border-slate-100">
+                    <td className="px-3 py-3">
+                      <img
+                        src={row.image || PLACEHOLDER}
+                        alt={row.productName}
+                        className="h-10 w-14 rounded object-cover"
+                        onError={(e) => { (e.target as HTMLImageElement).src = PLACEHOLDER; }}
+                      />
+                    </td>
                     <td className="px-3 py-3 font-semibold text-[#1B4DB1]">{row.id}</td>
                     <td className="px-3 py-3">{row.productName}</td>
                     <td className="px-3 py-3">{row.category}</td>
@@ -172,21 +192,18 @@ export function WarehouseStockManagementPage() {
                     <td className="px-3 py-3 text-slate-500">{row.minimumStock} / {row.maximumStock}</td>
                     <td className="px-3 py-3">&#8377;{row.costPrice}</td>
                     <td className="px-3 py-3">&#8377;{row.sellingPrice}</td>
+                    <td className="px-3 py-3 text-slate-700">{row.performedBy}</td>
                     <td className="px-3 py-3 text-slate-600">{row.expiryDate}</td>
                     <td className="px-3 py-3">
                       {indicator ? (
-  <span
-    className={`inline-flex items-center justify-center rounded-full px-4 py-1.5 text-xs font-semibold whitespace-nowrap min-w-[90px] ${indicator.cls}`}
-  >
-    {indicator.label}
-  </span>
-) : (
-  <span
-    className="inline-flex items-center justify-center rounded-full px-4 py-1.5 text-xs font-semibold whitespace-nowrap min-w-[90px] bg-emerald-100 text-emerald-700"
-  >
-    OK
-  </span>
-)}
+                        <span className={`inline-flex items-center justify-center rounded-full px-4 py-1.5 text-xs font-semibold whitespace-nowrap min-w-[90px] ${indicator.cls}`}>
+                          {indicator.label}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center justify-center rounded-full px-4 py-1.5 text-xs font-semibold whitespace-nowrap min-w-[90px] bg-emerald-100 text-emerald-700">
+                          OK
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-1">
@@ -196,7 +213,7 @@ export function WarehouseStockManagementPage() {
                         <button onClick={() => openEdit(row)} className="rounded p-2 text-blue-600 hover:bg-blue-50">
                           <Pencil className="h-4 w-4" />
                         </button>
-                        <button onClick={() => setRows((prev) => prev.filter((x) => x.id !== row.id))} className="rounded p-2 text-red-600 hover:bg-red-50">
+                        <button onClick={() => deleteProduct(row.id)} className="rounded p-2 text-red-600 hover:bg-red-50">
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
@@ -209,14 +226,93 @@ export function WarehouseStockManagementPage() {
         </div>
       </div>
 
+      {/* ── Add / Edit Drawer ── */}
       {drawerOpen ? (
         <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/30">
-          <div className="h-full w-full max-w-[440px] overflow-y-auto border-l border-slate-200 bg-white p-5">
+          <div className="h-full w-full max-w-[460px] overflow-y-auto border-l border-slate-200 bg-white p-5">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">{editingId ? "Edit Product" : "Add New Product"}</h3>
               <button onClick={() => setDrawerOpen(false)} className="rounded p-2 hover:bg-slate-100"><X className="h-4 w-4" /></button>
             </div>
+
             <div className="space-y-3">
+              {/* ── Image Section ── */}
+              <div className="rounded-lg border border-slate-200 p-3">
+                <p className="mb-2 text-xs font-semibold text-slate-600 flex items-center gap-1.5">
+                  <ImageIcon className="h-3.5 w-3.5" /> Product Image
+                </p>
+                {/* Preview */}
+                <div className="mb-3 flex items-center gap-3">
+                  <img
+                    src={form.image || getProductImage(form.productName) || PLACEHOLDER}
+                    alt="preview"
+                    className="h-16 w-20 rounded object-cover border border-slate-200"
+                    onError={(e) => { (e.target as HTMLImageElement).src = PLACEHOLDER; }}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setImageMode("select")}
+                      className={`h-8 rounded px-3 text-xs font-semibold border ${imageMode === "select" ? "bg-[#0A3A92] text-white border-[#0A3A92]" : "border-slate-200 text-slate-600"}`}
+                    >
+                      Select Existing
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImageMode("upload")}
+                      className={`h-8 rounded px-3 text-xs font-semibold border ${imageMode === "upload" ? "bg-[#0A3A92] text-white border-[#0A3A92]" : "border-slate-200 text-slate-600"}`}
+                    >
+                      Upload New
+                    </button>
+                  </div>
+                </div>
+
+                {imageMode === "select" ? (
+                  <div>
+                    <input
+                      value={imageSelectQuery}
+                      onChange={(e) => setImageSelectQuery(e.target.value)}
+                      placeholder="Search product images..."
+                      className="mb-2 h-9 w-full rounded-md border border-slate-200 px-3 text-xs outline-none focus:border-[#0A3A92]"
+                    />
+                    <div className="grid grid-cols-4 gap-1.5 max-h-[160px] overflow-y-auto">
+                      {filteredImageNames.slice(0, 40).map((name) => {
+                        const imgSrc = getProductImage(name);
+                        return (
+                          <button
+                            key={name}
+                            type="button"
+                            onClick={() => setForm((s) => ({ ...s, image: imgSrc }))}
+                            className={`rounded border p-1 text-center ${form.image === imgSrc ? "border-[#0A3A92] ring-1 ring-[#0A3A92]" : "border-slate-200 hover:border-slate-400"}`}
+                            title={name}
+                          >
+                            <img src={imgSrc} alt={name} className="h-10 w-full rounded object-cover" />
+                            <p className="mt-0.5 text-[9px] text-slate-500 truncate">{name}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleFileUpload}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="h-9 w-full rounded-md border border-dashed border-slate-300 text-xs text-slate-500 hover:border-[#0A3A92] hover:text-[#0A3A92]"
+                    >
+                      Click to upload image (JPG, PNG, WebP)
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <Field label="Product Name">
                 <input className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.productName} onChange={(e) => setForm((s) => ({ ...s, productName: e.target.value }))} />
               </Field>
@@ -224,6 +320,9 @@ export function WarehouseStockManagementPage() {
                 <select className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.category} onChange={(e) => setForm((s) => ({ ...s, category: e.target.value as StockCategory }))}>
                   {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
                 </select>
+              </Field>
+              <Field label="Performed By">
+                <input className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.performedBy} onChange={(e) => setForm((s) => ({ ...s, performedBy: e.target.value }))} />
               </Field>
               <Field label="Current Stock">
                 <input type="number" className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.currentStock} onChange={(e) => setForm((s) => ({ ...s, currentStock: Number(e.target.value) }))} />
@@ -243,6 +342,9 @@ export function WarehouseStockManagementPage() {
               <Field label="Selling Price (Rs.)">
                 <input type="number" className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.sellingPrice} onChange={(e) => setForm((s) => ({ ...s, sellingPrice: Number(e.target.value) }))} />
               </Field>
+              <Field label="Supplier">
+                <input className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.supplier} onChange={(e) => setForm((s) => ({ ...s, supplier: e.target.value }))} />
+              </Field>
               <Field label="Batch Number">
                 <input className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.batchNumber} onChange={(e) => setForm((s) => ({ ...s, batchNumber: e.target.value }))} />
               </Field>
@@ -256,6 +358,7 @@ export function WarehouseStockManagementPage() {
                 </select>
               </Field>
             </div>
+
             <div className="mt-5 flex items-center justify-end gap-2">
               <button onClick={() => setDrawerOpen(false)} className="h-10 rounded-md border border-slate-200 px-4 text-sm font-semibold">Cancel</button>
               <button onClick={saveForm} className="h-10 rounded-md bg-[#0A3A92] px-4 text-sm font-semibold text-white">Save Product</button>
@@ -264,12 +367,22 @@ export function WarehouseStockManagementPage() {
         </div>
       ) : null}
 
+      {/* ── View Modal ── */}
       {viewing ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/30 p-4">
-          <div className="w-full max-w-[560px] rounded-xl border border-slate-200 bg-white p-5">
+          <div className="w-full max-w-[580px] rounded-xl border border-slate-200 bg-white p-5">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">Product Details</h3>
               <button onClick={() => setViewing(null)} className="rounded p-2 hover:bg-slate-100"><X className="h-4 w-4" /></button>
+            </div>
+            {/* Product image in modal */}
+            <div className="mb-4 flex justify-center">
+              <img
+                src={viewing.image || PLACEHOLDER}
+                alt={viewing.productName}
+                className="h-28 w-40 rounded-lg object-cover border border-slate-200"
+                onError={(e) => { (e.target as HTMLImageElement).src = PLACEHOLDER; }}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <Detail label="Product ID" value={viewing.id} />
@@ -280,6 +393,8 @@ export function WarehouseStockManagementPage() {
               <Detail label="Maximum Stock" value={`${viewing.maximumStock}`} />
               <Detail label="Cost Price" value={`Rs.${viewing.costPrice}`} />
               <Detail label="Selling Price" value={`Rs.${viewing.sellingPrice}`} />
+              <Detail label="Performed By" value={viewing.performedBy} />
+              <Detail label="Supplier" value={viewing.supplier} />
               <Detail label="Batch Number" value={viewing.batchNumber} />
               <Detail label="Expiry Date" value={viewing.expiryDate} />
               <Detail label="Status" value={viewing.status} />
