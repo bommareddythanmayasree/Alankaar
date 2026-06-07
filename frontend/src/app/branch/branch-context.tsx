@@ -1,6 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { getProductImage } from "../../shared/utils/product-images";
 import { useWarehouseProducts, useWarehouseForBranch, type StockItem } from "../warehouse/warehouse-context";
+import { getApprovedPendingProducts, getLiveStock } from "../../shared/lib/demo-store";
 
 // ── Cart ──────────────────────────────────────────────────────────────────────
 
@@ -114,11 +116,37 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
   const [orders, setOrders] = useState<PlacedOrder[]>([]);
 
   const warehouseProducts = useWarehouseProducts();
-  const { markPaymentComplete, addBranchNotification, addOrderFromBranch, registerBranchStatusUpdater } = useWarehouseForBranch();
+  const { markPaymentComplete, addBranchNotification, addOrderFromBranch, registerBranchStatusUpdater, products: warehouseStockProducts } = useWarehouseForBranch();
 
-  const catalogProducts: CatalogProduct[] = warehouseProducts
-    ? warehouseProducts.map(toCatalogProduct)
-    : [];
+  // Only show Approved products in branch catalog (undefined means original seeded = approved)
+  const catalogProducts: CatalogProduct[] = (() => {
+    const fromWarehouse = (warehouseProducts ?? [])
+      .filter((p) => !p.approvalStatus || p.approvalStatus === "Approved")
+      .map(toCatalogProduct);
+
+    // Also merge in approved pending products from localStorage
+    const approvedPending = getApprovedPendingProducts();
+    const existingNames = new Set(fromWarehouse.map((p) => p.name.toLowerCase()));
+    const fromPending: CatalogProduct[] = approvedPending
+      .filter((ap) => !existingNames.has(ap.productName.toLowerCase()))
+      .map((ap) => {
+        // Use live stock override if set (reflects post-dispatch deductions)
+        const liveStock = getLiveStock(ap.id, ap.stock);
+        return {
+          id: ap.id,
+          name: ap.productName,
+          category: ap.category,
+          price: ap.price,
+          stock: liveStock,
+          code: ap.id,
+          image: ap.image || getProductImage(ap.productName),
+          isLowStock: liveStock < 50 && liveStock > 0,
+          isNearExpiry: false,
+        };
+      });
+
+    return [...fromWarehouse, ...fromPending];
+  })();
 
   // Register a callback so warehouse approve/reject syncs status back to branch orders
   useEffect(() => {
@@ -214,23 +242,32 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
 
       setOrders((prev) => [newOrder, ...prev]);
 
-      // Push to warehouse order verification
-      addOrderFromBranch({
-        id: orderId,
-        branch: newOrder.branch,
-        date: dateStr,
-        itemsCount: items.length,
-        amount,
-        status: "Pending",
-        items: items.map((i) => ({
-          name: i.name,
-          requested: i.quantity,
-          available: i.quantity, // warehouse will reconcile against actual stock
-        })),
-        partialFulfillment: false,
-        emailSent: false,
-        paymentStatus: undefined,
-        invoiceNumber: undefined,
+      // Push to warehouse order verification — flushSync ensures state commits
+      // before any navigation triggered by the caller, so Order Verification
+      // always sees the new order immediately on mount.
+      flushSync(() => {
+        addOrderFromBranch({
+          id: orderId,
+          branch: newOrder.branch,
+          date: dateStr,
+          itemsCount: items.length,
+          amount,
+          status: "Pending",
+          items: items.map((i) => {
+            const stockItem = warehouseStockProducts.find(
+              (p) => p.productName.toLowerCase() === i.name.toLowerCase()
+            );
+            return {
+              name: i.name,
+              requested: i.quantity,
+              available: stockItem ? stockItem.currentStock : i.quantity,
+            };
+          }),
+          partialFulfillment: false,
+          emailSent: false,
+          paymentStatus: undefined,
+          invoiceNumber: undefined,
+        });
       });
 
       // Notify branch: order submitted
@@ -244,7 +281,7 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
 
       return newOrder;
     },
-    [addBranchNotification, addOrderFromBranch]
+    [addBranchNotification, addOrderFromBranch, warehouseStockProducts]
   );
 
   const payOrder = useCallback(

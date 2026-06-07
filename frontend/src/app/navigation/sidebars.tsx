@@ -29,15 +29,16 @@ type SidebarRegistry = Record<string, Omit<SidebarItem, "active">>;
 
 // NOTE: Do not change labels — they drive the exact sidebar UI text.
 export const ADMIN_NAV: SidebarRegistry = {
-  Dashboard:            { label: "Dashboard",           icon: <LayoutDashboard className="h-4 w-4" /> },
-  "Branch Management":  { label: "Branch Management",   icon: <GitBranch className="h-4 w-4" /> },
-  "Products Analytics": { label: "Products Analytics",  icon: <BarChart2 className="h-4 w-4" /> },
-  "Inventory Analytics":{ label: "Inventory Analytics", icon: <PackageSearch className="h-4 w-4" /> },
-  "Revenue Analytics":  { label: "Revenue Analytics",   icon: <TrendingUp className="h-4 w-4" /> },
-  "Order Analytics":    { label: "Order Analytics",     icon: <ShoppingCart className="h-4 w-4" /> },
-  "AI Recommendations": { label: "AI Recommendations",  icon: <Sparkles className="h-4 w-4" /> },
-  Notifications:        { label: "Notifications",        icon: <Bell className="h-4 w-4" /> },
-  Settings:             { label: "Settings",             icon: <Settings className="h-4 w-4" /> },
+  Dashboard:                    { label: "Dashboard",                    icon: <LayoutDashboard className="h-4 w-4" /> },
+  "Branch Management":          { label: "Branch Management",            icon: <GitBranch className="h-4 w-4" /> },
+  "Products Analytics":         { label: "Products Analytics",           icon: <BarChart2 className="h-4 w-4" /> },
+  "Inventory Analytics":        { label: "Inventory Analytics",          icon: <PackageSearch className="h-4 w-4" /> },
+  "Revenue Analytics":          { label: "Revenue Analytics",            icon: <TrendingUp className="h-4 w-4" /> },
+  "Order Analytics":            { label: "Order Analytics",              icon: <ShoppingCart className="h-4 w-4" /> },
+  "AI Recommendations":         { label: "AI Recommendations",           icon: <Sparkles className="h-4 w-4" /> },
+  "Product Approval Requests":  { label: "Product Approval Requests",    icon: <CheckSquare className="h-4 w-4" /> },
+  Notifications:                { label: "Notifications",                icon: <Bell className="h-4 w-4" /> },
+  Settings:                     { label: "Settings",                     icon: <Settings className="h-4 w-4" /> },
 };
 
 export const WAREHOUSE_NAV: SidebarRegistry = {

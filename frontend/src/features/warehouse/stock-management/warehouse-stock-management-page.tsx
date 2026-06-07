@@ -59,24 +59,28 @@ function stockIndicator(item: StockItem): { label: string; cls: string } | null 
 const PLACEHOLDER = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' fill='%23F1F5F9'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='10' fill='%2394A3B8'%3ENo Image%3C/text%3E%3C/svg%3E";
 
 export function WarehouseStockManagementPage() {
-  const { products, addProduct, updateProduct, deleteProduct } = useWarehouse();
+  const { products, addProductPendingApproval, updateProduct, deleteProduct } = useWarehouse();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All Categories");
+  const [approvalFilter, setApprovalFilter] = useState<"All" | "Approved" | "Pending" | "Rejected">("All");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<StockItem | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [imageMode, setImageMode] = useState<"select" | "upload">("select");
   const [imageSelectQuery, setImageSelectQuery] = useState("");
+  const [pendingToast, setPendingToast] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredRows = useMemo(() => {
     return products.filter((row) => {
       const bySearch = [row.id, row.productName, row.category].join(" ").toLowerCase().includes(search.toLowerCase());
       const byCategory = category === "All Categories" ? true : row.category === category;
-      return bySearch && byCategory;
+      const rowApproval = row.approvalStatus ?? "Approved";
+      const byApproval = approvalFilter === "All" ? true : rowApproval === approvalFilter;
+      return bySearch && byCategory && byApproval;
     });
-  }, [products, search, category]);
+  }, [products, search, category, approvalFilter]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -101,7 +105,10 @@ export function WarehouseStockManagementPage() {
     if (editingId) {
       updateProduct(editingId, finalForm);
     } else {
-      addProduct(finalForm);
+      // New product goes through Admin Approval flow
+      addProductPendingApproval(finalForm);
+      setPendingToast(`"${form.productName}" submitted for admin approval. It will appear in the catalog once approved.`);
+      setTimeout(() => setPendingToast(null), 5000);
     }
     setDrawerOpen(false);
   };
@@ -129,6 +136,13 @@ export function WarehouseStockManagementPage() {
     >
       <p className="mb-4 text-slate-600">Manage your products and stock levels</p>
 
+      {/* Pending approval toast */}
+      {pendingToast && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="font-semibold">⏳ Pending Approval:</span> {pendingToast}
+        </div>
+      )}
+
       <div className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <div className="relative w-full max-w-[320px]">
@@ -147,6 +161,16 @@ export function WarehouseStockManagementPage() {
           >
             <option>All Categories</option>
             {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+          </select>
+          <select
+            value={approvalFilter}
+            onChange={(e) => setApprovalFilter(e.target.value as "All" | "Approved" | "Pending" | "Rejected")}
+            className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]"
+          >
+            <option value="All">All Approvals</option>
+            <option value="Approved">Approved</option>
+            <option value="Pending">Pending Approval</option>
+            <option value="Rejected">Rejected</option>
           </select>
           <button onClick={openCreate} className="inline-flex h-10 items-center gap-2 rounded-md bg-[#0A3A92] px-4 text-sm font-semibold text-white">
             <Plus className="h-4 w-4" />
@@ -169,6 +193,7 @@ export function WarehouseStockManagementPage() {
                 <th className="px-3 py-3">Performed By</th>
                 <th className="px-3 py-3">Expiry</th>
                 <th className="px-3 py-3">Indicator</th>
+                <th className="px-3 py-3">Approval</th>
                 <th className="px-3 py-3">Actions</th>
               </tr>
             </thead>
@@ -206,6 +231,21 @@ export function WarehouseStockManagementPage() {
                       )}
                     </td>
                     <td className="px-3 py-3">
+                      {row.approvalStatus === "Pending" ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                          ⏳ Pending
+                        </span>
+                      ) : row.approvalStatus === "Rejected" ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700">
+                          ✕ Rejected
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                          ✓ Approved
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3">
                       <div className="flex items-center gap-1">
                         <button onClick={() => setViewing(row)} className="rounded p-2 text-slate-500 hover:bg-slate-100">
                           <Eye className="h-4 w-4" />
@@ -232,6 +272,11 @@ export function WarehouseStockManagementPage() {
           <div className="h-full w-full max-w-[460px] overflow-y-auto border-l border-slate-200 bg-white p-5">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">{editingId ? "Edit Product" : "Add New Product"}</h3>
+              {!editingId && (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                  Requires Admin Approval
+                </span>
+              )}
               <button onClick={() => setDrawerOpen(false)} className="rounded p-2 hover:bg-slate-100"><X className="h-4 w-4" /></button>
             </div>
 
@@ -398,6 +443,10 @@ export function WarehouseStockManagementPage() {
               <Detail label="Batch Number" value={viewing.batchNumber} />
               <Detail label="Expiry Date" value={viewing.expiryDate} />
               <Detail label="Status" value={viewing.status} />
+              <Detail
+                label="Approval Status"
+                value={viewing.approvalStatus === "Pending" ? "⏳ Pending Admin Approval" : viewing.approvalStatus === "Rejected" ? "✕ Rejected" : "✓ Approved"}
+              />
             </div>
           </div>
         </div>

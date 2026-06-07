@@ -1,8 +1,14 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { AlertTriangle, Check, Mail, Search, X } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
-import { useWarehouse, type VerifyStatus, type VerificationOrder } from "../../../app/warehouse/warehouse-context";
+import { WAREHOUSE_ORDER_VERIFICATION } from "../../../shared/data/warehouse-mock-data";
+import {
+  getDemoOrder,
+  approveOrder as demoApprove,
+  rejectOrder as demoReject,
+  type DemoOrder,
+} from "../../../shared/lib/demo-store";
 
 const SIDEBAR_LABELS = [
   "Dashboard",
@@ -16,6 +22,53 @@ const SIDEBAR_LABELS = [
   "Settings",
 ] as const;
 
+type VerifyStatus = "Pending" | "Approved" | "Rejected" | "Partial";
+
+type OrderRow = {
+  id: string;
+  branch: string;
+  date: string;
+  itemsCount: number;
+  amount: number;
+  status: VerifyStatus;
+  rejectionReason?: string;
+  items: { name: string; requested: number; available: number; approved?: number }[];
+  partialFulfillment?: boolean;
+  emailSent?: boolean;
+  paymentStatus?: "Pending" | "Completed";
+  invoiceNumber?: string;
+  isDemo?: boolean;
+};
+
+function seedOrders(): OrderRow[] {
+  return WAREHOUSE_ORDER_VERIFICATION.map((o) => ({
+    ...o,
+    status: o.status as VerifyStatus,
+    partialFulfillment: false,
+    emailSent: false,
+    paymentStatus: undefined,
+    invoiceNumber: undefined,
+    isDemo: false,
+  }));
+}
+
+function demoToRow(d: DemoOrder): OrderRow {
+  return {
+    id: d.id,
+    branch: d.branch,
+    date: d.date,
+    itemsCount: d.itemsCount,
+    amount: d.amount,
+    status: d.status === "Rejected" ? "Rejected" : d.status === "Approved" ? "Approved" : "Pending",
+    items: d.items,
+    partialFulfillment: false,
+    emailSent: false,
+    paymentStatus: d.paymentStatus === "Paid" ? "Completed" : (d.status === "Approved" ? "Pending" : undefined),
+    invoiceNumber: d.invoiceNumber ?? undefined,
+    isDemo: true,
+  };
+}
+
 function statusClass(status: VerifyStatus) {
   if (status === "Approved") return "bg-emerald-100 text-emerald-700";
   if (status === "Rejected") return "bg-rose-100 text-rose-700";
@@ -23,18 +76,37 @@ function statusClass(status: VerifyStatus) {
   return "bg-amber-100 text-amber-700";
 }
 
-function statusLabel(status: VerifyStatus) {
-  if (status === "Partial") return "Partial";
-  return status;
-}
-
 export function OrderVerificationPage() {
-  const { orders, approveOrder, rejectOrder } = useWarehouse();
+  // Local state: mutable list of orders (mock + demo)
+  const [orders, setOrders] = useState<OrderRow[]>(() => {
+    const base = seedOrders();
+    const demo = getDemoOrder();
+    if (demo) return [demoToRow(demo), ...base];
+    return base;
+  });
+
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string>(orders[0]?.id ?? "");
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
-  const [approveConfirm, setApproveConfirm] = useState<VerificationOrder | null>(null);
+  const [approveConfirm, setApproveConfirm] = useState<OrderRow | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Re-read localStorage whenever page gains focus (handles cross-tab / navigation)
+  useEffect(() => {
+    function sync() {
+      const demo = getDemoOrder();
+      setOrders(() => {
+        const base = seedOrders();
+        if (!demo) return base;
+        return [demoToRow(demo), ...base];
+      });
+    }
+    window.addEventListener("focus", sync);
+    // Also run immediately on mount to catch orders placed before navigation
+    sync();
+    return () => window.removeEventListener("focus", sync);
+  }, []);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -43,23 +115,51 @@ export function OrderVerificationPage() {
 
   const selected = orders.find((o) => o.id === selectedId) ?? filtered[0] ?? null;
 
-  /** Check if any item in the order has insufficient stock */
-  function hasShortage(order: VerificationOrder) {
+  function hasShortage(order: OrderRow) {
     return order.items.some((item) => item.available < item.requested);
   }
 
-  const handleApproveClick = (order: VerificationOrder) => {
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  const handleApproveClick = (order: OrderRow) => {
     if (hasShortage(order)) {
-      // Show partial fulfillment confirmation
       setApproveConfirm(order);
     } else {
-      approveOrder(order.id);
+      doApprove(order);
     }
   };
 
+  function doApprove(order: OrderRow) {
+    if (order.isDemo) {
+      demoApprove(order.id, order.branch, order.items);
+    }
+
+    setOrders((prev) =>
+      prev.map((o) => {
+        if (o.id !== order.id) return o;
+        const isPartial = hasShortage(o);
+        const resolved = o.items.map((item) => ({
+          ...item,
+          approved: Math.min(item.requested, item.available),
+        }));
+        return {
+          ...o,
+          status: isPartial ? ("Partial" as VerifyStatus) : ("Approved" as VerifyStatus),
+          items: resolved,
+          partialFulfillment: isPartial,
+          paymentStatus: "Pending" as const,
+        };
+      })
+    );
+    showToast(`Order ${order.id} approved successfully`);
+  }
+
   const confirmApprove = () => {
     if (!approveConfirm) return;
-    approveOrder(approveConfirm.id);
+    doApprove(approveConfirm);
     setApproveConfirm(null);
   };
 
@@ -67,7 +167,16 @@ export function OrderVerificationPage() {
 
   const confirmReject = () => {
     if (!rejectingId || !rejectReason.trim()) return;
-    rejectOrder(rejectingId, rejectReason.trim());
+    const order = orders.find((o) => o.id === rejectingId);
+    if (order?.isDemo) demoReject(rejectingId, rejectReason.trim());
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === rejectingId
+          ? { ...o, status: "Rejected" as VerifyStatus, rejectionReason: rejectReason.trim() }
+          : o
+      )
+    );
+    showToast(`Order ${rejectingId} rejected`);
     setRejectingId(null);
   };
 
@@ -77,6 +186,13 @@ export function OrderVerificationPage() {
       sidebarItems={buildSidebar(WAREHOUSE_NAV, [...SIDEBAR_LABELS], "Order Verification")}
     >
       <p className="mb-4 text-slate-600">Review and verify branch orders</p>
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg">
+          {toast}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
         {/* ── Left: Order List ── */}
@@ -117,7 +233,14 @@ export function OrderVerificationPage() {
                         : "hover:bg-slate-50"
                     }`}
                   >
-                    <td className="px-3 py-3 font-semibold text-[#1B4DB1] underline">{order.id}</td>
+                    <td className="px-3 py-3 font-semibold text-[#1B4DB1] underline">
+                      {order.id}
+                      {order.isDemo && order.status === "Pending" && (
+                        <span className="ml-2 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                          NEW
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-3">{order.branch}</td>
                     <td className="px-3 py-3">{order.date}</td>
                     <td className="px-3 py-3">{order.itemsCount} items</td>
@@ -125,13 +248,13 @@ export function OrderVerificationPage() {
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-1.5">
                         <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusClass(order.status)}`}>
-                          {statusLabel(order.status)}
+                          {order.status}
                         </span>
                         {order.partialFulfillment && (
                           <span title="Partial fulfillment"><AlertTriangle className="h-3.5 w-3.5 text-orange-500" /></span>
                         )}
                         {order.emailSent && (
-                          <span title="Email sent to branch"><Mail className="h-3.5 w-3.5 text-blue-500" /></span>
+                          <span title="Email sent"><Mail className="h-3.5 w-3.5 text-blue-500" /></span>
                         )}
                         {(order.status === "Approved" || order.status === "Partial") && order.paymentStatus === "Completed" && (
                           <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">Paid</span>
@@ -178,15 +301,10 @@ export function OrderVerificationPage() {
                 <p className="text-slate-600">{selected.branch}</p>
                 <div className="mt-2 flex items-center gap-2">
                   <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusClass(selected.status)}`}>
-                    {statusLabel(selected.status)}
+                    {selected.status}
                   </span>
                   {selected.partialFulfillment && (
                     <span className="text-xs text-orange-600 font-medium">Partial fulfillment</span>
-                  )}
-                  {selected.emailSent && (
-                    <span className="inline-flex items-center gap-1 text-xs text-blue-600 font-medium">
-                      <Mail className="h-3 w-3" /> Email sent
-                    </span>
                   )}
                 </div>
                 {selected.invoiceNumber && (
@@ -217,9 +335,7 @@ export function OrderVerificationPage() {
                     <div key={item.name} className={`rounded-md border p-3 ${isShortage ? "border-orange-200 bg-orange-50" : "border-slate-200"}`}>
                       <div className="flex items-center justify-between gap-2">
                         <p className="font-semibold text-slate-800">{item.name}</p>
-                        {isShortage && (
-                          <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0" />
-                        )}
+                        {isShortage && <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0" />}
                       </div>
                       <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
                         <div className="rounded bg-slate-50 px-2 py-1">
@@ -235,12 +351,11 @@ export function OrderVerificationPage() {
                           <p className={`font-medium ${isShortage ? "text-orange-700" : "text-emerald-700"}`}>{approvedQty}</p>
                         </div>
                       </div>
-                      {isShortage && (
+                      {isShortage ? (
                         <p className="mt-2 text-xs font-semibold text-orange-600">
-                          ⚠ Only {item.available} units available — will be partially fulfilled.
+                          ⚠ Only {item.available} units available — partial fulfillment.
                         </p>
-                      )}
-                      {!isShortage && (
+                      ) : (
                         <p className="mt-2 text-xs font-semibold text-emerald-600">✓ Sufficient stock</p>
                       )}
                     </div>
@@ -248,11 +363,11 @@ export function OrderVerificationPage() {
                 })}
               </div>
 
-              {selected.status === "Rejected" && selected.rejectionReason ? (
+              {selected.status === "Rejected" && selected.rejectionReason && (
                 <div className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
                   <span className="font-semibold">Reason:</span> {selected.rejectionReason}
                 </div>
-              ) : null}
+              )}
             </>
           ) : (
             <p className="text-sm text-slate-500">Select an order to view details.</p>
@@ -260,8 +375,8 @@ export function OrderVerificationPage() {
         </section>
       </div>
 
-      {/* ── Partial Fulfillment Confirmation Modal ── */}
-      {approveConfirm ? (
+      {/* ── Partial Fulfillment Modal ── */}
+      {approveConfirm && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/35 p-4">
           <div className="w-full max-w-[480px] rounded-xl border border-slate-200 bg-white p-5">
             <div className="mb-3 flex items-center gap-2">
@@ -283,9 +398,6 @@ export function OrderVerificationPage() {
                     {" · "}
                     Will approve: <span className="font-medium text-orange-700">{item.available}</span>
                   </p>
-                  <p className="mt-1 text-xs text-orange-600">
-                    Shortage: {item.requested - item.available} units. An email will be sent to the branch.
-                  </p>
                 </div>
               ))}
             </div>
@@ -297,10 +409,10 @@ export function OrderVerificationPage() {
             </div>
           </div>
         </div>
-      ) : null}
+      )}
 
       {/* ── Reject Modal ── */}
-      {rejectingId ? (
+      {rejectingId && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/35 p-4">
           <div className="w-full max-w-[440px] rounded-xl border border-slate-200 bg-white p-5">
             <h3 className="mb-2 text-lg font-semibold">Reject Order</h3>
@@ -320,7 +432,7 @@ export function OrderVerificationPage() {
             </div>
           </div>
         </div>
-      ) : null}
+      )}
     </ErpLayout>
   );
 }

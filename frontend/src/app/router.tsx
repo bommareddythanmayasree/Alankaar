@@ -11,6 +11,7 @@ import { AiRecommendationsPage } from "../features/admin/ai-recommendations/ai-r
 import { OrderAnalyticsPage } from "../features/admin/order-analytics/order-analytics-page";
 import { AdminNotificationsPage } from "../features/admin/notifications/admin-notifications-page";
 import { AdminSettingsPage } from "../features/admin/settings/admin-settings-page";
+import { ProductApprovalRequestsPage } from "../features/admin/product-approval-requests/product-approval-requests-page";
 import { WarehouseDashboardPage } from "../features/warehouse/dashboard/warehouse-dashboard-page";
 import { WarehouseStockManagementPage } from "../features/warehouse/stock-management/warehouse-stock-management-page";
 import { OrderVerificationPage } from "../features/warehouse/order-verification/order-verification-page";
@@ -30,28 +31,21 @@ import { OrderHistoryPage } from "../features/branch/order-history/order-history
 import { BranchNotificationsPage } from "../features/branch/notifications/branch-notifications-page";
 import { BranchSettingsPage } from "../features/branch/settings/branch-settings-page";
 import { BranchProvider } from "./branch/branch-context";
-import { WarehouseProvider } from "./warehouse/warehouse-context";
+
+// WarehouseProvider lives in App.tsx above RouterProvider — single instance for all routes.
 
 function AppShell({ children }: { children: React.ReactNode }) {
   return <AuthProvider>{children}</AuthProvider>;
 }
 
-/** Warehouse routes get WarehouseProvider */
 function WarehouseShell({ children }: { children: React.ReactNode }) {
-  return (
-    <AppShell>
-      <WarehouseProvider>{children}</WarehouseProvider>
-    </AppShell>
-  );
+  return <AppShell>{children}</AppShell>;
 }
 
-/** Branch routes get both providers — reads products from WarehouseProvider */
 function BranchShell({ children }: { children: React.ReactNode }) {
   return (
     <AppShell>
-      <WarehouseProvider>
-        <BranchProvider>{children}</BranchProvider>
-      </WarehouseProvider>
+      <BranchProvider>{children}</BranchProvider>
     </AppShell>
   );
 }
@@ -59,7 +53,24 @@ function BranchShell({ children }: { children: React.ReactNode }) {
 function Protected({ children, role }: { children: React.ReactNode; role: "ADMIN" | "WAREHOUSE_MANAGER" | "BRANCH_MANAGER" }) {
   const { auth } = useAuth();
   if (!auth) return <Navigate to="/login" replace />;
-  if (auth.user.role !== role) return <Navigate to="/login" replace />;
+  if (auth.user.role !== role) {
+    // Redirect to the correct dashboard for the user's actual role
+    if (auth.user.role === "ADMIN") return <Navigate to="/admin/dashboard" replace />;
+    if (auth.user.role === "WAREHOUSE_MANAGER") return <Navigate to="/warehouse/dashboard" replace />;
+    if (auth.user.role === "BRANCH_MANAGER") return <Navigate to="/branch/dashboard" replace />;
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+}
+
+/** Redirects to dashboard if already authenticated, otherwise shows login */
+function PublicOnly({ children }: { children: React.ReactNode }) {
+  const { auth } = useAuth();
+  if (auth) {
+    if (auth.user.role === "ADMIN") return <Navigate to="/admin/dashboard" replace />;
+    if (auth.user.role === "WAREHOUSE_MANAGER") return <Navigate to="/warehouse/dashboard" replace />;
+    if (auth.user.role === "BRANCH_MANAGER") return <Navigate to="/branch/dashboard" replace />;
+  }
   return <>{children}</>;
 }
 
@@ -68,7 +79,9 @@ export const router = createBrowserRouter([
     path: "/",
     element: (
       <AppShell>
-        <Navigate to="/login" replace />
+        <PublicOnly>
+          <Navigate to="/login" replace />
+        </PublicOnly>
       </AppShell>
     ),
   },
@@ -76,7 +89,9 @@ export const router = createBrowserRouter([
     path: "/login",
     element: (
       <AppShell>
-        <LoginPage />
+        <PublicOnly>
+          <LoginPage />
+        </PublicOnly>
       </AppShell>
     ),
   },
@@ -166,6 +181,16 @@ export const router = createBrowserRouter([
       <AppShell>
         <Protected role="ADMIN">
           <AdminNotificationsPage />
+        </Protected>
+      </AppShell>
+    ),
+  },
+  {
+    path: "/admin/product-approval-requests",
+    element: (
+      <AppShell>
+        <Protected role="ADMIN">
+          <ProductApprovalRequestsPage />
         </Protected>
       </AppShell>
     ),

@@ -59,6 +59,7 @@ export const ADMIN_SIDEBAR_LABELS = [
   "Revenue Analytics",
   "Order Analytics",
   "AI Recommendations",
+  "Product Approval Requests",
   "Notifications",
   "Settings",
 ] as const;

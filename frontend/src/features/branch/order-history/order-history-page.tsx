@@ -1,9 +1,9 @@
-﻿import { useMemo, useState } from "react";
+﻿import { useMemo, useState, useEffect } from "react";
 import { Eye, Search } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { BRANCH_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { BRANCH_HISTORY_ORDERS, type BranchOrderStatus } from "../../../shared/data/branch-mock-data";
-import { useOrders } from "../../../app/branch/branch-context";
+import { getDemoOrder, getDemoTrackingStatus } from "../../../shared/lib/demo-store";
 
 const SIDEBAR_LABELS = [
   "Dashboard",
@@ -26,25 +26,38 @@ function statusBadge(status: string) {
 }
 
 export function OrderHistoryPage() {
-  const { orders: contextOrders } = useOrders();
   const [statusFilter, setStatusFilter] = useState<"All" | BranchOrderStatus>("All");
   const [search, setSearch] = useState("");
- const [visibleCount, setVisibleCount] = useState(6);
-const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+  const [visibleCount, setVisibleCount] = useState(6);
+  const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+  const [demoRow, setDemoRow] = useState<any | null>(null);
 
-  // Merge context orders with seed orders
+  useEffect(() => {
+    function sync() {
+      const order = getDemoOrder();
+      const trackStatus = getDemoTrackingStatus();
+      if (!order) { setDemoRow(null); return; }
+      setDemoRow({
+        orderId: order.id,
+        branchName: order.branch,
+        date: order.orderDate,
+        items: order.itemsCount,
+        amount: order.amount,
+        status: trackStatus === "Pending Approval" ? "Pending" : trackStatus,
+        deliveryDate: order.expectedDelivery,
+        invoiceNumber: order.invoiceNumber ?? undefined,
+      });
+    }
+    sync();
+    window.addEventListener("focus", sync);
+    return () => window.removeEventListener("focus", sync);
+  }, []);
+
+  // Merge demo order with seed orders
   const allOrders = useMemo(() => {
-    const mapped = contextOrders.map((o) => ({
-      orderId: o.orderId,
-      branchName: o.branch,
-      date: o.orderDate,
-      items: o.items.reduce((sum, i) => sum + i.qty, 0),
-      amount: o.amount,
-      status: o.currentStatus as string,
-      deliveryDate: o.expectedDelivery,
-    }));
-    return [...mapped, ...BRANCH_HISTORY_ORDERS];
-  }, [contextOrders]);
+    if (demoRow) return [demoRow, ...BRANCH_HISTORY_ORDERS];
+    return [...BRANCH_HISTORY_ORDERS];
+  }, [demoRow]);
 
   const filtered = useMemo(() => {
     let rows = allOrders;

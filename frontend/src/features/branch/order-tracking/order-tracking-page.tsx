@@ -1,10 +1,14 @@
-﻿import { useMemo, useState } from "react";
+﻿import { useMemo, useState, useEffect } from "react";
 import { CreditCard, FileText, X } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { BRANCH_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { BRANCH_TRACKING_ORDERS } from "../../../shared/data/branch-mock-data";
-import { useOrders } from "../../../app/branch/branch-context";
-import { useWarehouseForBranch } from "../../../app/warehouse/warehouse-context";
+import {
+  getDemoOrder,
+  getDemoTrackingStatus,
+  payForOrder,
+  type DemoTrackingStatus,
+} from "../../../shared/lib/demo-store";
 
 type TrackingStatus =
   | "Pending Approval"
@@ -42,47 +46,89 @@ function statusColor(status: string) {
   if (status === "Delivered") return "bg-emerald-100 text-emerald-700";
   if (status === "In Transit") return "bg-sky-100 text-sky-700";
   if (status === "Approved" || status === "Payment Completed") return "bg-indigo-100 text-indigo-700";
-  if (status === "Pending Approval") return "bg-amber-100 text-amber-700";
+  if (status === "Rejected") return "bg-rose-100 text-rose-700";
   return "bg-amber-100 text-amber-700";
 }
 
-export function OrderTrackingPage() {
-  const { orders: contextOrders, payOrder } = useOrders();
-  const { invoices } = useWarehouseForBranch();
+type TrackOrder = {
+  orderId: string;
+  orderDate: string;
+  expectedDelivery: string;
+  currentStatus: TrackingStatus;
+  amount: number;
+  branch: string;
+  items: { name: string; qty: number }[];
+  statusHistory: { status: string; timestamp: string; by: string }[];
+  paymentCompleted: boolean;
+  invoiceNumber?: string;
+  paymentMethod?: string;
+  isDemo?: boolean;
+};
 
+function buildSeedOrders(): TrackOrder[] {
+  return BRANCH_TRACKING_ORDERS.map((o) => {
+    const mappedStatus = o.currentStatus === ("Order Placed" as string)
+      ? "Pending Approval"
+      : o.currentStatus;
+    return {
+      ...o,
+      currentStatus: mappedStatus as TrackingStatus,
+      paymentCompleted: false,
+      invoiceNumber: undefined,
+      paymentMethod: undefined,
+      isDemo: false,
+    };
+  });
+}
+
+export function OrderTrackingPage() {
+  const [demoOrder, setDemoOrder] = useState<TrackOrder | null>(null);
   const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
   const [invoicePreviewOrderId, setInvoicePreviewOrderId] = useState<string | null>(null);
 
-  // Merge context orders (new) with seed orders, context orders first
-  const allOrders = useMemo(() => {
-    const mapped = contextOrders.map((o) => ({
-      orderId: o.orderId,
-      orderDate: o.orderDate,
-      expectedDelivery: o.expectedDelivery,
-      currentStatus: o.currentStatus as TrackingStatus,
-      amount: o.amount,
-      branch: o.branch,
-      items: o.items,
-      statusHistory: o.statusHistory,
-      paymentCompleted: o.paymentCompleted,
-      invoiceNumber: o.invoiceNumber,
-      paymentMethod: o.paymentMethod,
-    }));
-    // Map seed orders to new status format (they have "Order Placed" → "Approved" → etc.)
-    const seedMapped = BRANCH_TRACKING_ORDERS.map((o) => {
-      const mappedStatus = o.currentStatus === ("Order Placed" as string)
-        ? "Pending Approval"
-        : o.currentStatus;
-      return {
-        ...o,
-        currentStatus: mappedStatus as TrackingStatus,
-        paymentCompleted: false,
-        invoiceNumber: undefined,
-        paymentMethod: undefined,
-      };
-    });
-    return [...mapped, ...seedMapped];
-  }, [contextOrders]);
+  // Load demo order from localStorage (re-sync on focus)
+  useEffect(() => {
+    function sync() {
+      const stored = getDemoOrder();
+      const trackStatus = getDemoTrackingStatus() as DemoTrackingStatus;
+      if (!stored) { setDemoOrder(null); return; }
+
+      const now = new Date();
+      const ts = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) +
+        " " + now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+
+      const history: { status: string; timestamp: string; by: string }[] = [
+        { status: "Pending Approval", timestamp: stored.orderDate + " (placed)", by: "Branch Manager" },
+      ];
+      if (trackStatus !== "Pending Approval") {
+        history.push({ status: trackStatus, timestamp: ts, by: "Warehouse" });
+      }
+
+      setDemoOrder({
+        orderId: stored.id,
+        orderDate: stored.orderDate,
+        expectedDelivery: stored.expectedDelivery,
+        currentStatus: trackStatus as TrackingStatus,
+        amount: stored.amount,
+        branch: stored.branch,
+        items: stored.items.map((i) => ({ name: i.name, qty: i.requested })),
+        statusHistory: history,
+        paymentCompleted: stored.paymentStatus === "Paid",
+        invoiceNumber: stored.invoiceNumber ?? undefined,
+        paymentMethod: stored.paymentMethod,
+        isDemo: true,
+      });
+    }
+    sync();
+    window.addEventListener("focus", sync);
+    return () => window.removeEventListener("focus", sync);
+  }, []);
+
+  const allOrders = useMemo<TrackOrder[]>(() => {
+    const seed = buildSeedOrders();
+    if (demoOrder) return [demoOrder, ...seed];
+    return seed;
+  }, [demoOrder]);
 
   const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>(undefined);
   const effectiveId = selectedOrderId ?? allOrders[0]?.orderId;
@@ -92,11 +138,8 @@ export function OrderTrackingPage() {
     [selected]
   );
 
-  // Find invoice for selected order
-  const invoice = useMemo(
-    () => invoices.find((inv) => inv.orderId === selected?.orderId),
-    [invoices, selected]
-  );
+  // Invoice data for demo order
+  const hasInvoice = !!(selected?.isDemo && selected.invoiceNumber);
 
   const isApproved =
     selected?.currentStatus === "Approved" ||
@@ -107,16 +150,30 @@ export function OrderTrackingPage() {
     selected?.currentStatus === "Delivered";
 
   const canPay =
+    selected?.isDemo &&
     isApproved &&
-    !selected?.paymentCompleted &&
-    selected?.currentStatus !== "Delivered" &&
-    selected?.currentStatus !== "Payment Completed";
+    !selected.paymentCompleted &&
+    selected.currentStatus !== "Payment Completed" &&
+    selected.currentStatus !== "Delivered";
 
   const handlePay = async () => {
-    if (!selected) return;
+    if (!selected?.isDemo) return;
     setPayingOrderId(selected.orderId);
     await new Promise((r) => setTimeout(r, 1200));
-    payOrder(selected.orderId);
+    payForOrder(selected.orderId);
+    // Re-sync
+    const stored = getDemoOrder();
+    if (stored && demoOrder) {
+      setDemoOrder({
+        ...demoOrder,
+        currentStatus: "Payment Completed",
+        paymentCompleted: true,
+        statusHistory: [
+          ...demoOrder.statusHistory,
+          { status: "Payment Completed", timestamp: new Date().toLocaleString(), by: "Branch Manager" },
+        ],
+      });
+    }
     setPayingOrderId(null);
   };
 
@@ -142,7 +199,6 @@ export function OrderTrackingPage() {
             </select>
           </div>
 
-          {/* Visual timeline */}
           <div className="overflow-x-auto">
             <div className="flex min-w-[700px] items-start gap-0">
               {TIMELINE.map((status, idx) => {
@@ -166,18 +222,10 @@ export function OrderTrackingPage() {
                         {idx + 1}
                       </div>
                       {idx < TIMELINE.length - 1 && (
-                        <div
-                          className={`h-1 flex-1 ${
-                            done && idx < currentIdx ? "bg-[#0A3A92]" : "bg-slate-200"
-                          }`}
-                        />
+                        <div className={`h-1 flex-1 ${done && idx < currentIdx ? "bg-[#0A3A92]" : "bg-slate-200"}`} />
                       )}
                     </div>
-                    <span
-                      className={`mt-2 text-center text-xs ${
-                        done ? "font-semibold text-slate-900" : "text-slate-500"
-                      }`}
-                    >
+                    <span className={`mt-2 text-center text-xs ${done ? "font-semibold text-slate-900" : "text-slate-500"}`}>
                       {status}
                     </span>
                   </div>
@@ -186,36 +234,26 @@ export function OrderTrackingPage() {
             </div>
           </div>
 
-          {/* Approval pending info box */}
           {selected.currentStatus === "Pending Approval" && (
             <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
               <p className="font-semibold">Waiting for warehouse approval</p>
-              <p className="mt-1 text-xs text-amber-700">
-                Payment and invoice will be available once the warehouse approves your order.
-              </p>
+              <p className="mt-1 text-xs text-amber-700">Payment and invoice will be available once approved.</p>
             </div>
           )}
 
-          {/* Rejected info box */}
           {selected.currentStatus === "Rejected" && (
             <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
               <p className="font-semibold">Order Rejected</p>
-              <p className="mt-1 text-xs text-rose-700">
-                This order was rejected by the warehouse. Please place a new order.
-              </p>
+              <p className="mt-1 text-xs text-rose-700">This order was rejected by the warehouse. Please place a new order.</p>
             </div>
           )}
 
-          {/* Status history */}
           {selected.statusHistory.length > 0 && (
             <div className="mt-5">
               <h4 className="mb-3 text-sm font-semibold text-slate-700">Status History</h4>
               <div className="space-y-2">
                 {selected.statusHistory.map((h, i) => (
-                  <div
-                    key={i}
-                    className="flex items-start gap-3 rounded-md bg-[#F8FAFD] px-3 py-2 text-sm"
-                  >
+                  <div key={i} className="flex items-start gap-3 rounded-md bg-[#F8FAFD] px-3 py-2 text-sm">
                     <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-[#0A3A92]" />
                     <div>
                       <span className="font-semibold text-slate-800">{h.status}</span>
@@ -239,30 +277,18 @@ export function OrderTrackingPage() {
             <DetailRow label="Expected Delivery" value={selected.expectedDelivery} />
             <div className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2">
               <span className="text-slate-500">Status</span>
-              <span
-                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusColor(
-                  selected.currentStatus
-                )}`}
-              >
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusColor(selected.currentStatus)}`}>
                 {selected.currentStatus}
               </span>
             </div>
-            <DetailRow
-              label="Total Amount"
-              value={`₹${new Intl.NumberFormat("en-IN").format(selected.amount)}`}
-            />
-            {selected.paymentMethod && (
-              <DetailRow label="Payment Method" value={selected.paymentMethod} />
-            )}
-            {selected.invoiceNumber && (
-              <DetailRow label="Invoice" value={selected.invoiceNumber} />
-            )}
+            <DetailRow label="Total Amount" value={`₹${new Intl.NumberFormat("en-IN").format(selected.amount)}`} />
+            {selected.paymentMethod && <DetailRow label="Payment Method" value={selected.paymentMethod} />}
+            {selected.invoiceNumber && <DetailRow label="Invoice" value={selected.invoiceNumber} />}
           </div>
 
-          {/* Invoice + Pay buttons — only shown after approval */}
           {isApproved && (
             <div className="mt-4 space-y-2">
-              {invoice && (
+              {hasInvoice && (
                 <button
                   onClick={() => setInvoicePreviewOrderId(selected.orderId)}
                   className="flex w-full items-center justify-center gap-2 rounded-md border border-[#0A3A92] px-4 py-2.5 text-sm font-semibold text-[#0A3A92] hover:bg-[#EEF4FF]"
@@ -293,10 +319,7 @@ export function OrderTrackingPage() {
             <p className="mb-2 text-sm font-semibold">Products</p>
             <div className="space-y-1.5">
               {selected.items.map((item) => (
-                <div
-                  key={item.name}
-                  className="flex items-center justify-between text-sm text-slate-700"
-                >
+                <div key={item.name} className="flex items-center justify-between text-sm text-slate-700">
                   <span>{item.name}</span>
                   <span className="text-slate-500">x {item.qty}</span>
                 </div>
@@ -307,15 +330,12 @@ export function OrderTrackingPage() {
       </div>
 
       {/* Invoice Preview Modal */}
-      {invoicePreviewOrderId && invoice && (
+      {invoicePreviewOrderId && hasInvoice && selected.invoiceNumber && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4">
           <div className="w-full max-w-[820px] rounded-xl border border-slate-200 bg-white p-5 max-h-[90vh] overflow-y-auto">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Invoice — {invoice.invoiceNumber}</h3>
-              <button
-                onClick={() => setInvoicePreviewOrderId(null)}
-                className="rounded-md border border-slate-200 p-1.5 hover:bg-slate-50"
-              >
+              <h3 className="text-lg font-semibold">Invoice — {selected.invoiceNumber}</h3>
+              <button onClick={() => setInvoicePreviewOrderId(null)} className="rounded-md border border-slate-200 p-1.5 hover:bg-slate-50">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -326,10 +346,9 @@ export function OrderTrackingPage() {
                   <p className="text-sm text-slate-600">Warehouse Invoice</p>
                 </div>
                 <div className="text-right text-sm">
-                  <p><span className="font-semibold">Invoice:</span> {invoice.invoiceNumber}</p>
-                  <p><span className="font-semibold">Order:</span> {invoice.orderId}</p>
-                  <p><span className="font-semibold">Branch:</span> {invoice.branch}</p>
-                  <p><span className="font-semibold">Date:</span> {invoice.issuedDate}</p>
+                  <p><span className="font-semibold">Invoice:</span> {selected.invoiceNumber}</p>
+                  <p><span className="font-semibold">Order:</span> {selected.orderId}</p>
+                  <p><span className="font-semibold">Branch:</span> {selected.branch}</p>
                 </div>
               </div>
               <table className="w-full text-left text-sm">
@@ -337,50 +356,33 @@ export function OrderTrackingPage() {
                   <tr>
                     <th className="px-2 py-2">Product</th>
                     <th className="px-2 py-2">Quantity</th>
-                    <th className="px-2 py-2">Price</th>
-                    <th className="px-2 py-2">Total</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {invoice.items.map((item) => (
-                    <tr key={item.product} className="border-t border-slate-100">
-                      <td className="px-2 py-2">{item.product}</td>
-                      <td className="px-2 py-2">{item.quantity}</td>
-                      <td className="px-2 py-2">&#8377;{item.price}</td>
-                      <td className="px-2 py-2">&#8377;{item.quantity * item.price}</td>
+                  {selected.items.map((item) => (
+                    <tr key={item.name} className="border-t border-slate-100">
+                      <td className="px-2 py-2">{item.name}</td>
+                      <td className="px-2 py-2">{item.qty}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <div className="mt-4 ml-auto max-w-[260px] text-sm space-y-1">
-                <div className="flex justify-between">
-                  <span>Subtotal</span>
-                  <span>&#8377;{new Intl.NumberFormat("en-IN").format(invoice.subtotal)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>GST ({invoice.gstPercent}%)</span>
-                  <span>&#8377;{new Intl.NumberFormat("en-IN").format(invoice.gstAmount)}</span>
-                </div>
-                <div className="flex justify-between border-t border-slate-200 pt-1 font-bold text-[#0A3A92]">
+                <div className="flex justify-between font-bold text-[#0A3A92]">
                   <span>Total Amount</span>
-                  <span>&#8377;{new Intl.NumberFormat("en-IN").format(invoice.totalAmount)}</span>
+                  <span>&#8377;{new Intl.NumberFormat("en-IN").format(selected.amount)}</span>
                 </div>
               </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
-              <button
-                onClick={() => setInvoicePreviewOrderId(null)}
-                className="h-10 rounded-md border border-slate-200 px-4 text-sm font-semibold"
-              >
-                Close
-              </button>
+              <button onClick={() => setInvoicePreviewOrderId(null)} className="h-10 rounded-md border border-slate-200 px-4 text-sm font-semibold">Close</button>
               {canPay && (
                 <button
                   onClick={() => { setInvoicePreviewOrderId(null); handlePay(); }}
                   disabled={payingOrderId === selected.orderId}
                   className="h-10 rounded-md bg-[#0A3A92] px-4 text-sm font-semibold text-white hover:bg-[#083173]"
                 >
-                  Pay Now — &#8377;{new Intl.NumberFormat("en-IN").format(invoice.totalAmount)}
+                  Pay Now — &#8377;{new Intl.NumberFormat("en-IN").format(selected.amount)}
                 </button>
               )}
             </div>

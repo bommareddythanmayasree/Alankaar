@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import {
   AlertTriangle,
   Boxes,
@@ -21,6 +21,7 @@ import {
   WAREHOUSE_RECENT_ORDERS,
   WAREHOUSE_LOW_STOCK,
 } from "../../../shared/data/warehouse-mock-data";
+import { getLowStockAlerts, type DemoLowStockAlert } from "../../../shared/lib/demo-store";
 
 const SIDEBAR_LABELS = [
   "Dashboard",
@@ -186,6 +187,25 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<
 }
 
 export function WarehouseDashboardPage() {
+  const [liveAlerts, setLiveAlerts] = useState<DemoLowStockAlert[]>([]);
+
+  useEffect(() => {
+    function syncAlerts() {
+      setLiveAlerts(getLowStockAlerts().filter((a) => !a.resolved));
+    }
+    syncAlerts();
+    window.addEventListener("focus", syncAlerts);
+    return () => window.removeEventListener("focus", syncAlerts);
+  }, []);
+
+  // Merge live alerts with static low stock data — live alerts take priority
+  const liveAlertNames = new Set(liveAlerts.map((a) => a.productName));
+  const staticLowStock = WAREHOUSE_LOW_STOCK.filter((item) => !liveAlertNames.has(item.name));
+  const combinedLowStock = [
+    ...liveAlerts.map((a) => ({ name: a.productName, qty: a.currentStock, isLive: true })),
+    ...staticLowStock.map((item) => ({ ...item, isLive: false })),
+  ];
+
   return (
     <ErpLayout
       title="Dashboard"
@@ -286,14 +306,24 @@ export function WarehouseDashboardPage() {
               <button className="text-sm font-semibold text-[#0A3A92]">View All</button>
             </div>
             <div className="space-y-2">
-              {WAREHOUSE_LOW_STOCK.map((item) => (
+              {combinedLowStock.map((item) => (
                 <div key={item.name} className="flex items-center justify-between rounded-md bg-[#F7FAFD] px-3 py-2">
-                  <span className="text-sm">{item.name}</span>
+                  <span className="text-sm">
+                    {item.name}
+                    {item.isLive && (
+                      <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                        LIVE
+                      </span>
+                    )}
+                  </span>
                   <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">
                     Qty: {item.qty}
                   </span>
                 </div>
               ))}
+              {combinedLowStock.length === 0 && (
+                <p className="py-3 text-center text-sm text-slate-400">No low stock alerts</p>
+              )}
             </div>
           </div>
         </section>

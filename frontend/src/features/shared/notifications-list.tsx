@@ -1,4 +1,4 @@
-import { Bell, CheckCircle2, Package, XCircle } from "lucide-react";
+import { Bell, CheckCircle2, CreditCard, FileText, Package, XCircle } from "lucide-react";
 import type { AppNotification, NotificationType } from "../../shared/data/notifications-mock";
 
 function iconFor(type: NotificationType) {
@@ -6,6 +6,8 @@ function iconFor(type: NotificationType) {
   if (type === "order_rejected") return <XCircle className="h-5 w-5 text-red-600" />;
   if (type === "stock_updated") return <Package className="h-5 w-5 text-blue-600" />;
   if (type === "delivery") return <CheckCircle2 className="h-5 w-5 text-teal-600" />;
+  if (type === "invoice_generated") return <FileText className="h-5 w-5 text-indigo-600" />;
+  if (type === "payment_received") return <CreditCard className="h-5 w-5 text-emerald-600" />;
   return <Bell className="h-5 w-5 text-amber-600" />;
 }
 
@@ -14,6 +16,8 @@ function accentFor(type: NotificationType) {
   if (type === "order_rejected") return "border-l-red-500 bg-red-50/40";
   if (type === "stock_updated") return "border-l-blue-500 bg-blue-50/40";
   if (type === "delivery") return "border-l-teal-500 bg-teal-50/40";
+  if (type === "invoice_generated") return "border-l-indigo-500 bg-indigo-50/40";
+  if (type === "payment_received") return "border-l-emerald-500 bg-emerald-50/40";
   return "border-l-amber-500 bg-amber-50/40";
 }
 

@@ -1,4 +1,4 @@
-export type NotificationType = "order_approved" | "stock_updated" | "order_rejected" | "order_pending" | "delivery";
+export type NotificationType = "order_approved" | "stock_updated" | "order_rejected" | "order_pending" | "delivery" | "invoice_generated" | "payment_received";
 
 export type AppNotification = {
   id: string;

@@ -31,6 +31,7 @@ export function ErpLayout({
     "Revenue Analytics": "/admin/revenue-analytics",
     "Order Analytics": "/admin/order-analytics",
     "AI Recommendations": "/admin/ai-recommendations",
+    "Product Approval Requests": "/admin/product-approval-requests",
     Notifications: "/admin/notifications",
     Settings: "/admin/settings",
   };

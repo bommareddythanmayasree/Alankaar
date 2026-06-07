@@ -17,7 +17,20 @@ import {
 } from "../../shared/data/warehouse-mock-data";
 import { getProductImage } from "../../shared/utils/product-images";
 import type { AppNotification } from "../../shared/data/notifications-mock";
-
+import { useEffect } from "react";
+import {
+  getLiveStock,
+  setProductStock,
+  addDemoStockLog,
+  createLowStockAlert,
+  LOW_STOCK_THRESHOLD,
+  savePendingProduct,
+  getApprovedPendingProducts,
+  getPendingProducts,
+  getProductApprovalMap,
+  setProductApprovalStatus,
+  deductStockOnDispatch,
+} from "../../shared/lib/demo-store";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type StockStatus = "Active" | "Inactive";
@@ -38,6 +51,8 @@ export type StockItem = {
   expiryDate: string;
   performedBy: string;
   image: string;
+  /** Approval status for new products added by warehouse */
+  approvalStatus?: "Pending" | "Approved" | "Rejected";
 };
 
 export type LogAction =
@@ -136,11 +151,45 @@ function nextNotifId(prefix: string) {
 }
 
 function seedItems(): StockItem[] {
-  return (WAREHOUSE_STOCK_ITEMS as Omit<StockItem, "performedBy" | "image">[]).map((item) => ({
-    ...item,
-    performedBy: "Warehouse Admin",
-    image: getProductImage(item.productName),
-  }));
+  const approvalMap = getProductApprovalMap();
+
+  // Seed base/static products (always Approved unless overridden)
+  const baseItems = (WAREHOUSE_STOCK_ITEMS as Omit<StockItem, "performedBy" | "image" | "approvalStatus">[]).map(
+    (item) => ({
+      ...item,
+      performedBy: "Warehouse Admin",
+      image: getProductImage(item.productName),
+      currentStock: getLiveStock(item.id, item.currentStock),
+      approvalStatus: (approvalMap[item.id] ?? "Approved") as "Approved" | "Pending" | "Rejected",
+    })
+  );
+
+  // Re-hydrate pending products submitted by warehouse (persisted in demo-store)
+  const pending = getPendingProducts();
+  const baseNames = new Set(baseItems.map((i) => i.productName.toLowerCase()));
+  const pendingItems: StockItem[] = pending
+    .filter((p) => !baseNames.has(p.productName.toLowerCase()))
+    .map((p) => ({
+      id: p.id,
+      productName: p.productName,
+      category: p.category as StockCategory,
+      currentStock: p.stock,
+      minimumStock: 10,
+      maximumStock: p.stock * 3,
+      unit: p.unit,
+      costPrice: p.costPrice,
+      sellingPrice: p.price,
+      supplier: p.supplier,
+      status: "Active" as const,
+      batchNumber: p.batchNumber,
+      expiryDate: p.expiryDate,
+      performedBy: "Warehouse Admin",
+      image: p.image || getProductImage(p.productName),
+      // Use persisted approval map; fall back to the status stored in pending product
+      approvalStatus: (approvalMap[p.id] ?? p.status) as "Approved" | "Pending" | "Rejected",
+    }));
+
+  return [...pendingItems, ...baseItems];
 }
 
 function seedLogs(): StockLog[] {
@@ -188,10 +237,14 @@ export async function sendPartialFulfillmentEmail(payload: PartialFulfillmentEma
 // ── Context value type ────────────────────────────────────────────────────────
 
 type WarehouseContextValue = {
+  _instanceId: string;
   products: StockItem[];
   addProduct: (form: Omit<StockItem, "id">) => void;
+  addProductPendingApproval: (form: Omit<StockItem, "id">) => void;
   updateProduct: (id: string, form: Omit<StockItem, "id">) => void;
   deleteProduct: (id: string) => void;
+  approveProductFromAdmin: (pendingId: string) => void;
+  rejectProductFromAdmin: (pendingId: string) => void;
   logs: StockLog[];
   orders: VerificationOrder[];
   approveOrder: (id: string) => void;
@@ -210,12 +263,21 @@ type WarehouseContextValue = {
 
 const WarehouseContext = createContext<WarehouseContextValue | null>(null);
 
+// ── Instance identity (for debug logging) ────────────────────────────────────
+let instanceCounter = 0;
+
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function WarehouseProvider({ children }: { children: React.ReactNode }) {
+  const instanceId = useRef(`WH-INSTANCE-${++instanceCounter}`);
+  console.log(`[WarehouseProvider] Mounted: ${instanceId.current}`);
   const [products, setProducts] = useState<StockItem[]>(seedItems);
   const [logs, setLogs] = useState<StockLog[]>(seedLogs);
   const [orders, setOrders] = useState<VerificationOrder[]>(seedOrders);
+  console.log("FINAL PROVIDER ORDERS", orders.map((o) => o.id));
+  useEffect(() => {
+    console.log("WAREHOUSE STATE", orders.map((o) => o.id));
+  }, [orders]);
   const [auditTrail, setAuditTrail] = useState<AuditEntry[]>([]);
   const [invoices, setInvoices] = useState<GeneratedInvoice[]>([]);
   const [warehouseNotifications, setWarehouseNotifications] = useState<AppNotification[]>([]);
@@ -285,8 +347,116 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
         "Product Created",
         `Created product "${form.productName}" (${nextId}) with ${form.currentStock} ${form.unit}.`
       );
+      // Persist stock to localStorage
+      setProductStock(nextId, form.currentStock);
+      // Check low stock on create
+      if (form.currentStock < LOW_STOCK_THRESHOLD) {
+        createLowStockAlert(nextId, form.productName, form.currentStock);
+      }
     },
     [addLog, addAudit]
+  );
+
+  /** Add product with Pending Approval status — sends to admin queue */
+  const addProductPendingApproval = useCallback(
+    (form: Omit<StockItem, "id">) => {
+      const nextId = `PRD-P-${Date.now()}`;
+      const pendingItem: StockItem = { id: nextId, ...form, approvalStatus: "Pending" };
+      setProducts((prev) => [pendingItem, ...prev]);
+      addLog({
+        product: form.productName,
+        action: "Product Created",
+        quantity: form.currentStock,
+        performedBy: form.performedBy || "Warehouse Admin",
+        remarks: `New product submitted for admin approval.`,
+      });
+      addAudit(
+        form.performedBy || "Warehouse Admin",
+        "Product Created (Pending Approval)",
+        `Product "${form.productName}" (${nextId}) submitted for admin approval.`
+      );
+      // Save to demo-store pending products list
+      savePendingProduct({
+        productName: form.productName,
+        category: form.category,
+        price: form.sellingPrice,
+        stock: form.currentStock,
+        unit: form.unit,
+        supplier: form.supplier,
+        costPrice: form.costPrice,
+        batchNumber: form.batchNumber,
+        expiryDate: form.expiryDate,
+        image: form.image || getProductImage(form.productName),
+      });
+    },
+    [addLog, addAudit]
+  );
+
+  /** Called when admin approves a pending product — syncs approval status */
+  const approveProductFromAdmin = useCallback(
+    (pendingProductName: string) => {
+      setProducts((prev) => {
+        // Persist approval for any matching pending product id
+        prev.forEach((p) => {
+          if (p.productName === pendingProductName && p.approvalStatus === "Pending") {
+            setProductApprovalStatus(p.id, "Approved");
+          }
+        });
+        return prev.map((p) =>
+          p.productName === pendingProductName && p.approvalStatus === "Pending"
+            ? { ...p, approvalStatus: "Approved" as const }
+            : p
+        );
+      });
+
+      // Also add newly approved products from demo-store that aren't in context yet
+      const approved = getApprovedPendingProducts();
+      setProducts((prev) => {
+        const names = new Set(prev.map((p) => p.productName.toLowerCase()));
+        const toAdd: StockItem[] = approved
+          .filter((ap) => !names.has(ap.productName.toLowerCase()))
+          .map((ap) => ({
+            id: ap.id,
+            productName: ap.productName,
+            category: ap.category as StockCategory,
+            currentStock: ap.stock,
+            minimumStock: 10,
+            maximumStock: ap.stock * 3,
+            unit: ap.unit,
+            costPrice: ap.costPrice,
+            sellingPrice: ap.price,
+            supplier: ap.supplier,
+            status: "Active" as const,
+            batchNumber: ap.batchNumber,
+            expiryDate: ap.expiryDate,
+            performedBy: "Warehouse Admin",
+            image: ap.image || getProductImage(ap.productName),
+            approvalStatus: "Approved" as const,
+          }));
+        return toAdd.length > 0 ? [...toAdd, ...prev] : prev;
+      });
+    },
+    []
+  );
+
+  /** Called when admin rejects a pending product — sets Rejected status in warehouse */
+  const rejectProductFromAdmin = useCallback(
+    (pendingProductName: string) => {
+      setProducts((prev) => {
+        // Persist rejection for any matching pending product id
+        prev.forEach((p) => {
+          if (p.productName === pendingProductName && p.approvalStatus === "Pending") {
+            setProductApprovalStatus(p.id, "Rejected");
+          }
+        });
+        return prev.map((p) =>
+          p.productName === pendingProductName && p.approvalStatus === "Pending"
+            ? { ...p, approvalStatus: "Rejected" as const }
+            : p
+        );
+      });
+    },
+    []
   );
 
   const updateProduct = useCallback(
@@ -304,6 +474,18 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
               performedBy: form.performedBy || "Warehouse Admin",
               remarks: `Stock updated from ${p.currentStock} to ${form.currentStock}.`,
             });
+            // Persist stock change to localStorage
+            setProductStock(id, form.currentStock);
+            addDemoStockLog({
+              product: form.productName,
+              action: delta > 0 ? "IN" : "OUT",
+              quantity: Math.abs(delta),
+              reason: `Manual stock update`,
+            });
+            // Low stock check
+            if (form.currentStock < LOW_STOCK_THRESHOLD) {
+              createLowStockAlert(id, form.productName, form.currentStock);
+            }
           } else {
             addLog({
               product: form.productName,
@@ -369,7 +551,21 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
             setProducts((prods) =>
               prods.map((p) => {
                 if (p.productName.toLowerCase() !== item.name.toLowerCase()) return p;
-                return { ...p, currentStock: Math.max(0, p.currentStock - approvedQty) };
+                const newStock = Math.max(0, p.currentStock - approvedQty);
+                // Persist to localStorage
+                setProductStock(p.id, newStock);
+                // Auto stock log
+                addDemoStockLog({
+                  product: item.name,
+                  action: "OUT",
+                  quantity: approvedQty,
+                  reason: `Branch Order ${id} approved`,
+                });
+                // Low stock alert if threshold crossed
+                if (newStock < LOW_STOCK_THRESHOLD) {
+                  createLowStockAlert(p.id, p.productName, newStock);
+                }
+                return { ...p, currentStock: newStock };
               })
             );
             addLog({
@@ -460,12 +656,14 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
 
   const rejectOrder = useCallback(
     (id: string, reason: string) => {
-      const order = orders.find((o) => o.id === id);
-      setOrders((prev) =>
-        prev.map((o) =>
+      let branch = "";
+      setOrders((prev) => {
+        const order = prev.find((o) => o.id === id);
+        if (order) branch = order.branch;
+        return prev.map((o) =>
           o.id === id ? { ...o, status: "Rejected" as VerifyStatus, rejectionReason: reason } : o
-        )
-      );
+        );
+      });
       addBranchNotification({
         type: "order_rejected",
         title: "Order Rejected",
@@ -476,45 +674,78 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
       addWarehouseNotification({
         type: "order_rejected",
         title: "Order Rejected",
-        message: `Order ${id}${order ? ` for ${order.branch}` : ""} has been rejected.`,
+        message: `Order ${id}${branch ? ` for ${branch}` : ""} has been rejected.`,
         timestamp: nowStr(),
         read: false,
       });
       addAudit(
         "Warehouse Admin",
         "Order Rejected",
-        `Order ${id}${order ? ` for ${order.branch}` : ""} rejected. Reason: ${reason}`
+        `Order ${id}${branch ? ` for ${branch}` : ""} rejected. Reason: ${reason}`
       );
-
-      // Sync rejection back to branch order state
       branchStatusUpdaterRef.current?.(id, "Rejected");
     },
-    [orders, addAudit, addBranchNotification, addWarehouseNotification]
+    [addAudit, addBranchNotification, addWarehouseNotification]
   );
 
   const markPaymentComplete = useCallback(
     (orderId: string) => {
-      const order = orders.find((o) => o.id === orderId);
-      setOrders((prev) =>
-        prev.map((o) =>
+      let branch = "";
+      setOrders((prev) => {
+        const order = prev.find((o) => o.id === orderId);
+        if (order) branch = order.branch;
+        return prev.map((o) =>
           o.id === orderId ? { ...o, paymentStatus: "Completed" as const } : o
-        )
-      );
+        );
+      });
       addWarehouseNotification({
         type: "order_approved",
         title: "Payment Received",
-        message: `Payment completed for order ${orderId}${order ? ` (${order.branch})` : ""}. Ready for dispatch.`,
+        message: `Payment completed for order ${orderId}${branch ? ` (${branch})` : ""}. Ready for dispatch.`,
         timestamp: nowStr(),
         read: false,
       });
       addAudit("Branch Manager", "Payment Completed", `Payment completed for order ${orderId}.`);
     },
-    [orders, addAudit, addWarehouseNotification]
+    [addAudit, addWarehouseNotification]
   );
 
   const dispatchOrder = useCallback(
     (orderId: string) => {
-      const order = orders.find((o) => o.id === orderId);
+      let branch = "";
+      setOrders((prev) => {
+        const order = prev.find((o) => o.id === orderId);
+        if (order) {
+          branch = order.branch;
+          // Deduct stock for each dispatched item
+          order.items.forEach((item) => {
+            const qty = item.approved ?? item.requested;
+            setProducts((prods) =>
+              prods.map((p) => {
+                if (p.productName.toLowerCase() !== item.name.toLowerCase()) return p;
+                const newStock = Math.max(0, p.currentStock - qty);
+                setProductStock(p.id, newStock);
+                // Also deduct in demo-store for catalog sync
+                deductStockOnDispatch(orderId, [{
+                  productId: p.id,
+                  name: p.productName,
+                  quantity: qty,
+                  baseStock: p.currentStock,
+                }]);
+                addLog({
+                  product: item.name,
+                  action: "Stock Out",
+                  quantity: qty,
+                  performedBy: "Warehouse Admin",
+                  remarks: `Dispatched — Order ${orderId} to ${branch}.`,
+                });
+                return { ...p, currentStock: newStock };
+              })
+            );
+          });
+        }
+        return prev;
+      });
       addBranchNotification({
         type: "delivery",
         title: "Order Dispatched",
@@ -525,19 +756,23 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
       addAudit(
         "Warehouse Admin",
         "Order Dispatched",
-        `Order ${orderId}${order ? ` for ${order.branch}` : ""} dispatched.`
+        `Order ${orderId}${branch ? ` for ${branch}` : ""} dispatched. Stock deducted.`
       );
     },
-    [orders, addAudit, addBranchNotification]
+    [addAudit, addBranchNotification, addLog]
   );
 
   return (
     <WarehouseContext.Provider
       value={{
+        _instanceId: instanceId.current,
         products,
         addProduct,
+        addProductPendingApproval,
         updateProduct,
         deleteProduct,
+        approveProductFromAdmin,
+        rejectProductFromAdmin,
         logs,
         orders,
         approveOrder,
@@ -577,12 +812,16 @@ export function useWarehouseForBranch() {
   const ctx = useContext(WarehouseContext);
   if (!ctx) throw new Error("useWarehouseForBranch must be used within WarehouseProvider");
   return {
+    _instanceId: ctx._instanceId,
     branchNotifications: ctx.branchNotifications,
     addBranchNotification: ctx.addBranchNotification,
     markPaymentComplete: ctx.markPaymentComplete,
     orders: ctx.orders,
     invoices: ctx.invoices,
+    products: ctx.products,
     addOrderFromBranch: ctx.addOrderFromBranch,
     registerBranchStatusUpdater: ctx.registerBranchStatusUpdater,
+    approveProductFromAdmin: ctx.approveProductFromAdmin,
+    rejectProductFromAdmin: ctx.rejectProductFromAdmin,
   };
 }
