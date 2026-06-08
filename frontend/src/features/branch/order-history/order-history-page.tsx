@@ -37,15 +37,25 @@ export function OrderHistoryPage() {
       const order = getDemoOrder();
       const trackStatus = getDemoTrackingStatus();
       if (!order) { setDemoRow(null); return; }
+      const displayAmount = order.approvedAmount ?? order.amount;
+      const displayStatus = order.isPartial && trackStatus !== "Pending Approval" && trackStatus !== "Rejected"
+        ? "Partially Approved"
+        : trackStatus === "Pending Approval" ? "Pending" : trackStatus;
       setDemoRow({
         orderId: order.id,
         branchName: order.branch,
         date: order.orderDate,
-        items: order.itemsCount,
-        amount: order.amount,
-        status: trackStatus === "Pending Approval" ? "Pending" : trackStatus,
+        items: order.items.length,
+        amount: displayAmount,
+        status: displayStatus,
         deliveryDate: order.expectedDelivery,
         invoiceNumber: order.invoiceNumber ?? undefined,
+        isPartial: order.isPartial ?? false,
+        requestedItems: order.items.map((i) => ({
+          name: i.name,
+          requested: i.requested,
+          approved: i.approved ?? Math.min(i.requested, i.available),
+        })),
       });
     }
     sync();
@@ -218,8 +228,28 @@ export function OrderHistoryPage() {
             <p className="font-semibold text-[#0A3A92]">
               ₹{selectedOrder.amount.toLocaleString("en-IN")}
             </p>
+            {selectedOrder.isPartial && (
+              <p className="mt-0.5 text-[10px] text-orange-600 font-medium">Approved amount only</p>
+            )}
           </div>
         </div>
+
+        {selectedOrder.isPartial && selectedOrder.requestedItems?.length > 0 && (
+          <div>
+            <h4 className="mb-2 font-semibold text-slate-900 text-sm">Item Breakdown (Partial Fulfillment)</h4>
+            <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 space-y-2">
+              {selectedOrder.requestedItems.map((item: { name: string; requested: number; approved: number }) => (
+                <div key={item.name} className="flex items-center justify-between text-sm">
+                  <span className="text-slate-700">{item.name}</span>
+                  <span className="text-slate-500">
+                    Approved: <span className="font-semibold text-orange-700">{item.approved}</span>
+                    <span className="text-slate-400"> / Requested: {item.requested}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div>
           <h4 className="mb-4 font-semibold text-slate-900">

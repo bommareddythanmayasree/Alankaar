@@ -30,6 +30,7 @@ export type DemoOrderItem = {
   name: string;
   requested: number;
   available: number;
+  approved?: number; // set by warehouse on approval
 };
 
 export type DemoOrder = {
@@ -37,7 +38,9 @@ export type DemoOrder = {
   branch: string;
   date: string;
   itemsCount: number;
-  amount: number;
+  amount: number;        // original requested amount (from checkout)
+  approvedAmount: number; // amount based on approved quantities (set on approval)
+  isPartial: boolean;    // true when any item was partially approved
   status: "Pending" | "Approved" | "Rejected";
   paymentStatus: "Pending" | "Paid";
   invoiceNumber: string | null;
@@ -496,6 +499,8 @@ export function placeOrder(
     date: orderDate,
     itemsCount: items.length,
     amount,
+    approvedAmount: amount, // will be recalculated on approval
+    isPartial: false,
     status: "Pending",
     paymentStatus: "Pending",
     invoiceNumber: null,
@@ -518,7 +523,26 @@ export function placeOrder(
 export function approveOrder(orderId: string, branch: string) {
   const order = getDemoOrder();
   if (!order || order.id !== orderId) return;
+
+  // Compute approved quantities and recalculate amount based on approved qtys only
+  const totalRequestedQty = order.items.reduce((s, i) => s + i.requested, 0);
+  const unitPrice = totalRequestedQty > 0 ? order.amount / totalRequestedQty : 0;
+
+  let isPartial = false;
+  const updatedItems: DemoOrderItem[] = order.items.map((item) => {
+    const approved = Math.min(item.requested, item.available);
+    if (approved < item.requested) isPartial = true;
+    return { ...item, approved };
+  });
+
+  const approvedAmount = Math.round(
+    updatedItems.reduce((s, i) => s + (i.approved ?? i.requested) * unitPrice, 0)
+  );
+
   order.status = "Approved";
+  order.items = updatedItems;
+  order.approvedAmount = approvedAmount;
+  order.isPartial = isPartial;
   saveDemoOrder(order);
   setDemoTrackingStatus("Approved");
 
@@ -532,8 +556,10 @@ export function approveOrder(orderId: string, branch: string) {
   });
   pushBranchNotif({
     type: "order_approved",
-    title: "Order Approved",
-    message: `Your order ${orderId} has been approved by warehouse. Invoice will be generated shortly.`,
+    title: isPartial ? "Order Partially Approved" : "Order Approved",
+    message: isPartial
+      ? `Your order ${orderId} was partially approved. Invoice will reflect approved quantities only.`
+      : `Your order ${orderId} has been approved by warehouse. Invoice will be generated shortly.`,
   });
 }
 

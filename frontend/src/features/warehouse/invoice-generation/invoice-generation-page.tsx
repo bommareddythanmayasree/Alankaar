@@ -59,17 +59,27 @@ export function InvoiceGenerationPage() {
   const demoInvoiceRow = useMemo<InvoiceRow | null>(() => {
     if (!demoOrder || demoOrder.status !== "Approved") return null;
     const today = new Date().toISOString().split("T")[0];
+
+    // Use persisted approved qty; fall back to min(requested, available) for backwards compat
+    const approvedItems = demoOrder.items.map((i) => ({
+      product: i.name,
+      quantity: i.approved ?? Math.min(i.requested, i.available),
+      price: 0,
+    }));
+
+    // Use approvedAmount (based on approved qtys); fall back to original amount
+    const invoiceTotal = demoOrder.approvedAmount ?? demoOrder.amount;
+
     if (!demoOrder.invoiceGenerated) {
-      // Show as pending invoice generation
       return {
         invoiceNumber: `PENDING-${demoOrder.id}`,
         orderId: demoOrder.id,
         branch: demoOrder.branch,
         gstPercent: 5,
         issuedDate: today,
-        items: demoOrder.items.map((i) => ({ product: i.name, quantity: i.requested, price: 0 })),
+        items: approvedItems,
         paymentStatus: "Pending",
-        totalAmount: demoOrder.amount,
+        totalAmount: invoiceTotal,
         isDemo: true,
         awaitingGeneration: true,
       };
@@ -80,9 +90,9 @@ export function InvoiceGenerationPage() {
       branch: demoOrder.branch,
       gstPercent: 5,
       issuedDate: today,
-      items: demoOrder.items.map((i) => ({ product: i.name, quantity: i.requested, price: 0 })),
+      items: approvedItems,
       paymentStatus: demoOrder.paymentStatus === "Paid" ? "Completed" : "Pending",
-      totalAmount: demoOrder.amount,
+      totalAmount: invoiceTotal,
       isDemo: true,
       awaitingGeneration: false,
     };

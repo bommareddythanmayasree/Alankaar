@@ -40,18 +40,18 @@ export function ProductApprovalRequestsPage() {
     reload();
   }, []);
 
-  const handleApprove = (id: string, productName: string) => {
+  const handleApprove = (id: string) => {
     approveProduct(id);
-    // Immediately sync approval to warehouse context (live state)
-    approveProductFromAdmin(productName);
+    // Sync approval to warehouse context using the canonical product ID
+    approveProductFromAdmin(id);
     reload();
   };
 
   const handleRejectConfirm = () => {
     if (!rejectModal) return;
     rejectProduct(rejectModal.id, rejectReason || "No reason provided");
-    // Immediately sync rejection to warehouse context (live state)
-    rejectProductFromAdmin(rejectModal.name);
+    // Sync rejection to warehouse context using the canonical product ID
+    rejectProductFromAdmin(rejectModal.id);
     setRejectModal(null);
     setRejectReason("");
     reload();
@@ -121,7 +121,7 @@ export function ProductApprovalRequestsPage() {
                         {p.status === "Pending" ? (
                           <div className="flex items-center gap-2">
                             <button
-                              onClick={() => handleApprove(p.id, p.productName)}
+                              onClick={() => handleApprove(p.id)}
                               className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
                             >
                               <CheckCircle className="h-3.5 w-3.5" />

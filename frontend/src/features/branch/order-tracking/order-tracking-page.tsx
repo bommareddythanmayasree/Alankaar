@@ -57,12 +57,13 @@ type TrackOrder = {
   currentStatus: TrackingStatus;
   amount: number;
   branch: string;
-  items: { name: string; qty: number }[];
+  items: { name: string; qty: number; requestedQty?: number; isPartial?: boolean }[];
   statusHistory: { status: string; timestamp: string; by: string }[];
   paymentCompleted: boolean;
   invoiceNumber?: string;
   paymentMethod?: string;
   isDemo?: boolean;
+  isPartial?: boolean;
 };
 
 function buildSeedOrders(): TrackOrder[] {
@@ -109,14 +110,20 @@ export function OrderTrackingPage() {
         orderDate: stored.orderDate,
         expectedDelivery: stored.expectedDelivery,
         currentStatus: trackStatus as TrackingStatus,
-        amount: stored.amount,
+        amount: stored.approvedAmount ?? stored.amount,
         branch: stored.branch,
-        items: stored.items.map((i) => ({ name: i.name, qty: i.requested })),
+        items: stored.items.map((i) => ({
+          name: i.name,
+          qty: i.approved ?? Math.min(i.requested, i.available),
+          requestedQty: i.requested,
+          isPartial: (i.approved ?? Math.min(i.requested, i.available)) < i.requested,
+        })),
         statusHistory: history,
         paymentCompleted: stored.paymentStatus === "Paid",
         invoiceNumber: stored.invoiceNumber ?? undefined,
         paymentMethod: stored.paymentMethod,
         isDemo: true,
+        isPartial: stored.isPartial ?? false,
       });
     }
     sync();
@@ -278,7 +285,9 @@ export function OrderTrackingPage() {
             <div className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2">
               <span className="text-slate-500">Status</span>
               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusColor(selected.currentStatus)}`}>
-                {selected.currentStatus}
+                {selected.isPartial && (selected.currentStatus === "Approved" || selected.currentStatus === "Payment Completed")
+                  ? "Partially Approved"
+                  : selected.currentStatus}
               </span>
             </div>
             <DetailRow label="Total Amount" value={`₹${new Intl.NumberFormat("en-IN").format(selected.amount)}`} />
@@ -321,10 +330,19 @@ export function OrderTrackingPage() {
               {selected.items.map((item) => (
                 <div key={item.name} className="flex items-center justify-between text-sm text-slate-700">
                   <span>{item.name}</span>
-                  <span className="text-slate-500">x {item.qty}</span>
+                  <span className="text-slate-500">
+                    {item.isPartial
+                      ? <span className="text-orange-600 font-medium">{item.qty} <span className="text-slate-400 font-normal">(req: {item.requestedQty})</span></span>
+                      : `x ${item.qty}`}
+                  </span>
                 </div>
               ))}
             </div>
+            {selected.isPartial && (
+              <p className="mt-2 rounded-md bg-orange-50 border border-orange-200 px-2 py-1.5 text-xs text-orange-700 font-medium">
+                ⚠ Partial fulfillment — invoice reflects approved quantities only.
+              </p>
+            )}
           </div>
         </aside>
       </div>

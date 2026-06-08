@@ -25,7 +25,6 @@ import {
   createLowStockAlert,
   LOW_STOCK_THRESHOLD,
   savePendingProduct,
-  getApprovedPendingProducts,
   getPendingProducts,
   getProductApprovalMap,
   setProductApprovalStatus,
@@ -359,23 +358,10 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
   /** Add product with Pending Approval status — sends to admin queue */
   const addProductPendingApproval = useCallback(
     (form: Omit<StockItem, "id">) => {
-      const nextId = `PRD-P-${Date.now()}`;
-      const pendingItem: StockItem = { id: nextId, ...form, approvalStatus: "Pending" };
-      setProducts((prev) => [pendingItem, ...prev]);
-      addLog({
-        product: form.productName,
-        action: "Product Created",
-        quantity: form.currentStock,
-        performedBy: form.performedBy || "Warehouse Admin",
-        remarks: `New product submitted for admin approval.`,
-      });
-      addAudit(
-        form.performedBy || "Warehouse Admin",
-        "Product Created (Pending Approval)",
-        `Product "${form.productName}" (${nextId}) submitted for admin approval.`
-      );
-      // Save to demo-store pending products list
-      savePendingProduct({
+      // Save to demo-store FIRST so we get the canonical ID that localStorage will use.
+      // Both in-memory and localStorage records must share the same ID so the
+      // approvalMap key written by admin approval resolves correctly on re-hydration.
+      const canonicalId = savePendingProduct({
         productName: form.productName,
         category: form.category,
         price: form.sellingPrice,
@@ -387,73 +373,54 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
         expiryDate: form.expiryDate,
         image: form.image || getProductImage(form.productName),
       });
+      const pendingItem: StockItem = { id: canonicalId, ...form, approvalStatus: "Pending" };
+      setProducts((prev) => [pendingItem, ...prev]);
+      addLog({
+        product: form.productName,
+        action: "Product Created",
+        quantity: form.currentStock,
+        performedBy: form.performedBy || "Warehouse Admin",
+        remarks: `New product submitted for admin approval.`,
+      });
+      addAudit(
+        form.performedBy || "Warehouse Admin",
+        "Product Created (Pending Approval)",
+        `Product "${form.productName}" (${canonicalId}) submitted for admin approval.`
+      );
     },
     [addLog, addAudit]
   );
 
   /** Called when admin approves a pending product — syncs approval status */
   const approveProductFromAdmin = useCallback(
-    (pendingProductName: string) => {
-      setProducts((prev) => {
-        // Persist approval for any matching pending product id
-        prev.forEach((p) => {
-          if (p.productName === pendingProductName && p.approvalStatus === "Pending") {
-            setProductApprovalStatus(p.id, "Approved");
-          }
-        });
-        return prev.map((p) =>
-          p.productName === pendingProductName && p.approvalStatus === "Pending"
+    (pendingProductId: string) => {
+      // Persist to localStorage approval map using the canonical id
+      setProductApprovalStatus(pendingProductId, "Approved");
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === pendingProductId && p.approvalStatus === "Pending"
             ? { ...p, approvalStatus: "Approved" as const }
             : p
-        );
-      });
-
-      // Also add newly approved products from demo-store that aren't in context yet
-      const approved = getApprovedPendingProducts();
-      setProducts((prev) => {
-        const names = new Set(prev.map((p) => p.productName.toLowerCase()));
-        const toAdd: StockItem[] = approved
-          .filter((ap) => !names.has(ap.productName.toLowerCase()))
-          .map((ap) => ({
-            id: ap.id,
-            productName: ap.productName,
-            category: ap.category as StockCategory,
-            currentStock: ap.stock,
-            minimumStock: 10,
-            maximumStock: ap.stock * 3,
-            unit: ap.unit,
-            costPrice: ap.costPrice,
-            sellingPrice: ap.price,
-            supplier: ap.supplier,
-            status: "Active" as const,
-            batchNumber: ap.batchNumber,
-            expiryDate: ap.expiryDate,
-            performedBy: "Warehouse Admin",
-            image: ap.image || getProductImage(ap.productName),
-            approvalStatus: "Approved" as const,
-          }));
-        return toAdd.length > 0 ? [...toAdd, ...prev] : prev;
-      });
+        )
+      );
     },
     []
   );
 
   /** Called when admin rejects a pending product — sets Rejected status in warehouse */
   const rejectProductFromAdmin = useCallback(
-    (pendingProductName: string) => {
-      setProducts((prev) => {
-        // Persist rejection for any matching pending product id
-        prev.forEach((p) => {
-          if (p.productName === pendingProductName && p.approvalStatus === "Pending") {
-            setProductApprovalStatus(p.id, "Rejected");
-          }
-        });
-        return prev.map((p) =>
-          p.productName === pendingProductName && p.approvalStatus === "Pending"
+    (pendingProductId: string) => {
+      // Persist to localStorage approval map using the canonical id
+      setProductApprovalStatus(pendingProductId, "Rejected");
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === pendingProductId && p.approvalStatus === "Pending"
             ? { ...p, approvalStatus: "Rejected" as const }
             : p
-        );
-      });
+        )
+      );
     },
     []
   );
@@ -591,9 +558,10 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
           });
         });
 
-        // Auto-create invoice
+        // Auto-create invoice using approved quantities
         const invoiceNo = nextInvoiceNumber();
-        const approxUnitPrice = Math.round(order.amount / Math.max(order.itemsCount, 1));
+        const totalApprovedQty = resolvedItems.reduce((sum, item) => sum + (item.approved ?? item.requested), 0);
+        const approxUnitPrice = totalApprovedQty > 0 ? Math.round(order.amount / totalApprovedQty) : 0;
         const invoiceItems = resolvedItems.map((item) => ({
           product: item.name,
           quantity: item.approved ?? item.requested,
