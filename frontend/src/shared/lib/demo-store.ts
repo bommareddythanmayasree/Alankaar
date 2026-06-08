@@ -515,22 +515,12 @@ export function placeOrder(
 }
 
 /** Called from Warehouse Order Verification when approving the demo order */
-export function approveOrder(orderId: string, branch: string, items: DemoOrderItem[]) {
+export function approveOrder(orderId: string, branch: string) {
   const order = getDemoOrder();
   if (!order || order.id !== orderId) return;
   order.status = "Approved";
   saveDemoOrder(order);
   setDemoTrackingStatus("Approved");
-
-  // Create stock logs for each item
-  items.forEach((item) => {
-    addDemoStockLog({
-      product: item.name,
-      action: "OUT",
-      quantity: item.requested,
-      reason: `Branch Order ${orderId}`,
-    });
-  });
 
   // Update analytics
   updateOrderAnalytics(order);

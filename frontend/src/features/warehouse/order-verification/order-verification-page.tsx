@@ -9,6 +9,7 @@ import {
   rejectOrder as demoReject,
   type DemoOrder,
 } from "../../../shared/lib/demo-store";
+import { useWarehouse } from "../../../app/warehouse/warehouse-context";
 
 const SIDEBAR_LABELS = [
   "Dashboard",
@@ -85,6 +86,8 @@ export function OrderVerificationPage() {
     return base;
   });
 
+  const { approveOrder: warehouseApprove, addOrderFromBranch, orders: contextOrders } = useWarehouse();
+
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string>(orders[0]?.id ?? "");
   const [rejectingId, setRejectingId] = useState<string | null>(null);
@@ -107,6 +110,25 @@ export function OrderVerificationPage() {
     sync();
     return () => window.removeEventListener("focus", sync);
   }, []);
+
+  // Sync approved/rejected status from warehouse context back into local display state
+  useEffect(() => {
+    if (contextOrders.length === 0) return;
+    setOrders((prev) =>
+      prev.map((local) => {
+        const ctx = contextOrders.find((c) => c.id === local.id);
+        if (!ctx) return local;
+        return {
+          ...local,
+          status: ctx.status as VerifyStatus,
+          items: ctx.items,
+          partialFulfillment: ctx.partialFulfillment,
+          paymentStatus: ctx.paymentStatus,
+          invoiceNumber: ctx.invoiceNumber,
+        };
+      })
+    );
+  }, [contextOrders]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -134,26 +156,48 @@ export function OrderVerificationPage() {
 
   function doApprove(order: OrderRow) {
     if (order.isDemo) {
-      demoApprove(order.id, order.branch, order.items);
+      // Ensure the demo order is registered in warehouse context so approveOrder can find it
+      const alreadyInContext = contextOrders.some((c) => c.id === order.id);
+      if (!alreadyInContext) {
+        addOrderFromBranch({
+          id: order.id,
+          branch: order.branch,
+          date: order.date,
+          itemsCount: order.itemsCount,
+          amount: order.amount,
+          status: "Pending",
+          items: order.items,
+          partialFulfillment: false,
+          emailSent: false,
+          paymentStatus: undefined,
+          invoiceNumber: undefined,
+        });
+      }
+      // This is the call that actually deducts stock, persists to localStorage,
+      // and creates stock logs — it must not be skipped.
+      warehouseApprove(order.id);
+      // Also update demo-store tracking status
+      demoApprove(order.id, order.branch);
+    } else {
+      // Non-demo (mock) orders: update local state directly
+      setOrders((prev) =>
+        prev.map((o) => {
+          if (o.id !== order.id) return o;
+          const isPartial = hasShortage(o);
+          const resolved = o.items.map((item) => ({
+            ...item,
+            approved: Math.min(item.requested, item.available),
+          }));
+          return {
+            ...o,
+            status: isPartial ? ("Partial" as VerifyStatus) : ("Approved" as VerifyStatus),
+            items: resolved,
+            partialFulfillment: isPartial,
+            paymentStatus: "Pending" as const,
+          };
+        })
+      );
     }
-
-    setOrders((prev) =>
-      prev.map((o) => {
-        if (o.id !== order.id) return o;
-        const isPartial = hasShortage(o);
-        const resolved = o.items.map((item) => ({
-          ...item,
-          approved: Math.min(item.requested, item.available),
-        }));
-        return {
-          ...o,
-          status: isPartial ? ("Partial" as VerifyStatus) : ("Approved" as VerifyStatus),
-          items: resolved,
-          partialFulfillment: isPartial,
-          paymentStatus: "Pending" as const,
-        };
-      })
-    );
     showToast(`Order ${order.id} approved successfully`);
   }
 

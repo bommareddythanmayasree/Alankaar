@@ -29,7 +29,6 @@ import {
   getPendingProducts,
   getProductApprovalMap,
   setProductApprovalStatus,
-  deductStockOnDispatch,
 } from "../../shared/lib/demo-store";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -532,124 +531,142 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
 
   const approveOrder = useCallback(
     (id: string) => {
-      setOrders((prev) =>
-        prev.map((order) => {
-          if (order.id !== id || order.status !== "Pending") return order;
+      setOrders((prev) => {
+        const order = prev.find((o) => o.id === id);
+        // Guard: only process Pending orders — prevents duplicate deductions
+        if (!order || order.status !== "Pending") return prev;
 
-          let isPartial = false;
-          const resolvedItems: OrderItem[] = order.items.map((item) => {
-            const approved = Math.min(item.requested, item.available);
-            if (approved < item.requested) isPartial = true;
-            return { ...item, approved };
-          });
+        let isPartial = false;
+        const resolvedItems: OrderItem[] = order.items.map((item) => {
+          const approved = Math.min(item.requested, item.available);
+          if (approved < item.requested) isPartial = true;
+          return { ...item, approved };
+        });
 
-          const newStatus: VerifyStatus = isPartial ? "Partial" : "Approved";
+        const newStatus: VerifyStatus = isPartial ? "Partial" : "Approved";
 
-          // Deduct stock
-          resolvedItems.forEach((item) => {
+        // Deduct stock outside of setOrders to avoid nested state update race conditions
+        const stockDeductions: Array<{ productId: string; name: string; approvedQty: number; newStock: number }> = [];
+
+        setProducts((prods) => {
+          return prods.map((p) => {
+            const item = resolvedItems.find((i) => i.name.toLowerCase() === p.productName.toLowerCase());
+            if (!item) return p;
             const approvedQty = item.approved ?? item.requested;
-            setProducts((prods) =>
-              prods.map((p) => {
-                if (p.productName.toLowerCase() !== item.name.toLowerCase()) return p;
-                const newStock = Math.max(0, p.currentStock - approvedQty);
-                // Persist to localStorage
-                setProductStock(p.id, newStock);
-                // Auto stock log
-                addDemoStockLog({
-                  product: item.name,
-                  action: "OUT",
-                  quantity: approvedQty,
-                  reason: `Branch Order ${id} approved`,
-                });
-                // Low stock alert if threshold crossed
-                if (newStock < LOW_STOCK_THRESHOLD) {
-                  createLowStockAlert(p.id, p.productName, newStock);
-                }
-                return { ...p, currentStock: newStock };
-              })
-            );
-            addLog({
-              product: item.name,
-              action: "Stock Out",
-              quantity: item.approved ?? item.requested,
-              performedBy: "Warehouse Admin",
-              remarks: `Order ${id} ${isPartial ? "(partial)" : "approved"} — to ${order.branch}.`,
-            });
+            const newStock = Math.max(0, p.currentStock - approvedQty);
+            // Persist to localStorage
+            setProductStock(p.id, newStock);
+            // Low stock alert if threshold crossed
+            if (newStock < LOW_STOCK_THRESHOLD) {
+              createLowStockAlert(p.id, p.productName, newStock);
+            }
+            // Collect for logging after state update
+            stockDeductions.push({ productId: p.id, name: p.productName, approvedQty, newStock });
+            return { ...p, currentStock: newStock };
           });
+        });
 
-          // Auto-create invoice
-          const invoiceNo = nextInvoiceNumber();
-          const approxUnitPrice = Math.round(order.amount / Math.max(order.itemsCount, 1));
-          const invoiceItems = resolvedItems.map((item) => ({
+        // Create stock logs after deductions are computed
+        resolvedItems.forEach((item) => {
+          const approvedQty = item.approved ?? item.requested;
+          const deduction = stockDeductions.find((d) => d.name.toLowerCase() === item.name.toLowerCase());
+          const remainingStock = deduction?.newStock ?? 0;
+          const productId = deduction?.productId ?? "N/A";
+
+          // Persist to demo-store for Stock Logs page (localStorage-backed)
+          addDemoStockLog({
             product: item.name,
-            quantity: item.approved ?? item.requested,
-            price: approxUnitPrice,
-          }));
-          const subtotal = order.amount;
-          const gstAmount = Math.round((subtotal * 5) / 100);
-
-          setInvoices((prev) => [
-            {
-              invoiceNumber: invoiceNo,
-              orderId: id,
-              branch: order.branch,
-              issuedDate: new Date().toISOString().split("T")[0],
-              gstPercent: 5,
-              items: invoiceItems,
-              subtotal,
-              gstAmount,
-              totalAmount: subtotal + gstAmount,
-            },
-            ...prev,
-          ]);
-
-          // Notify warehouse
-          addWarehouseNotification({
-            type: "order_approved",
-            title: "Order Approved — Awaiting Payment",
-            message: `Order ${id} for ${order.branch} approved. Invoice ${invoiceNo} generated. Waiting for branch payment.`,
-            timestamp: nowStr(),
-            read: false,
+            action: "OUT",
+            quantity: approvedQty,
+            reason: `Order Approved - Stock Deducted | Order: ${id} | Product ID: ${productId} | Remaining: ${remainingStock}`,
           });
 
-          // Notify branch
-          addBranchNotification({
-            type: "order_approved",
-            title: "Order Approved — Invoice Ready",
-            message: `Your order ${id} has been approved. Invoice ${invoiceNo} is ready. Please proceed with payment.`,
-            timestamp: nowStr(),
-            read: false,
+          // Add to warehouse-context logs (React state — Stock Logs page)
+          addLog({
+            product: item.name,
+            action: "Order Approved",
+            quantity: approvedQty,
+            performedBy: "Warehouse Admin",
+            remarks: `Order Approved - Stock Deducted | Order ID: ${id} | Product ID: ${productId} | Qty Deducted: ${approvedQty} | Remaining Stock: ${remainingStock}${isPartial ? " (partial fulfillment)" : ""}`,
           });
+        });
 
-          if (isPartial) {
-            addAudit("Warehouse Admin", "Partial Fulfillment", `Order ${id} partially fulfilled for ${order.branch}.`);
-            const emailItems = resolvedItems
-              .filter((i) => (i.approved ?? i.requested) < i.requested)
-              .map((i) => ({ name: i.name, requested: i.requested, approved: i.approved ?? 0 }));
-            sendPartialFulfillmentEmail({
-              to: "manager.gandhinagar@alankarsweets.com",
-              branch: order.branch,
-              orderId: id,
-              items: emailItems,
-            });
-          } else {
-            addAudit("Warehouse Admin", "Order Approved", `Order ${id} fully approved for ${order.branch}.`);
-          }
+        // Auto-create invoice
+        const invoiceNo = nextInvoiceNumber();
+        const approxUnitPrice = Math.round(order.amount / Math.max(order.itemsCount, 1));
+        const invoiceItems = resolvedItems.map((item) => ({
+          product: item.name,
+          quantity: item.approved ?? item.requested,
+          price: approxUnitPrice,
+        }));
+        const subtotal = order.amount;
+        const gstAmount = Math.round((subtotal * 5) / 100);
 
-          // Sync approval back to branch order state
-          branchStatusUpdaterRef.current?.(id, "Approved");
-
-          return {
-            ...order,
-            status: newStatus,
-            items: resolvedItems,
-            partialFulfillment: isPartial,
-            emailSent: isPartial,
-            paymentStatus: "Pending" as const,
+        setInvoices((prevInv) => [
+          {
             invoiceNumber: invoiceNo,
-          };
-        })
-      );
+            orderId: id,
+            branch: order.branch,
+            issuedDate: new Date().toISOString().split("T")[0],
+            gstPercent: 5,
+            items: invoiceItems,
+            subtotal,
+            gstAmount,
+            totalAmount: subtotal + gstAmount,
+          },
+          ...prevInv,
+        ]);
+
+        // Notify warehouse
+        addWarehouseNotification({
+          type: "order_approved",
+          title: "Order Approved — Awaiting Payment",
+          message: `Order ${id} for ${order.branch} approved. Invoice ${invoiceNo} generated. Waiting for branch payment.`,
+          timestamp: nowStr(),
+          read: false,
+        });
+
+        // Notify branch
+        addBranchNotification({
+          type: "order_approved",
+          title: "Order Approved — Invoice Ready",
+          message: `Your order ${id} has been approved. Invoice ${invoiceNo} is ready. Please proceed with payment.`,
+          timestamp: nowStr(),
+          read: false,
+        });
+
+        if (isPartial) {
+          addAudit("Warehouse Admin", "Partial Fulfillment", `Order ${id} partially fulfilled for ${order.branch}.`);
+          const emailItems = resolvedItems
+            .filter((i) => (i.approved ?? i.requested) < i.requested)
+            .map((i) => ({ name: i.name, requested: i.requested, approved: i.approved ?? 0 }));
+          sendPartialFulfillmentEmail({
+            to: "manager.gandhinagar@alankarsweets.com",
+            branch: order.branch,
+            orderId: id,
+            items: emailItems,
+          });
+        } else {
+          addAudit("Warehouse Admin", "Order Approved", `Order ${id} fully approved for ${order.branch}.`);
+        }
+
+        // Sync approval back to branch order state
+        branchStatusUpdaterRef.current?.(id, "Approved");
+
+        return prev.map((o) =>
+          o.id === id
+            ? {
+                ...order,
+                status: newStatus,
+                items: resolvedItems,
+                partialFulfillment: isPartial,
+                emailSent: isPartial,
+                paymentStatus: "Pending" as const,
+                invoiceNumber: invoiceNo,
+              }
+            : o
+        );
+      });
     },
     [addLog, addAudit, addWarehouseNotification, addBranchNotification]
   );
@@ -717,32 +734,6 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
         const order = prev.find((o) => o.id === orderId);
         if (order) {
           branch = order.branch;
-          // Deduct stock for each dispatched item
-          order.items.forEach((item) => {
-            const qty = item.approved ?? item.requested;
-            setProducts((prods) =>
-              prods.map((p) => {
-                if (p.productName.toLowerCase() !== item.name.toLowerCase()) return p;
-                const newStock = Math.max(0, p.currentStock - qty);
-                setProductStock(p.id, newStock);
-                // Also deduct in demo-store for catalog sync
-                deductStockOnDispatch(orderId, [{
-                  productId: p.id,
-                  name: p.productName,
-                  quantity: qty,
-                  baseStock: p.currentStock,
-                }]);
-                addLog({
-                  product: item.name,
-                  action: "Stock Out",
-                  quantity: qty,
-                  performedBy: "Warehouse Admin",
-                  remarks: `Dispatched — Order ${orderId} to ${branch}.`,
-                });
-                return { ...p, currentStock: newStock };
-              })
-            );
-          });
         }
         return prev;
       });
@@ -756,10 +747,10 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
       addAudit(
         "Warehouse Admin",
         "Order Dispatched",
-        `Order ${orderId}${branch ? ` for ${branch}` : ""} dispatched. Stock deducted.`
+        `Order ${orderId}${branch ? ` for ${branch}` : ""} dispatched.`
       );
     },
-    [addAudit, addBranchNotification, addLog]
+    [addAudit, addBranchNotification]
   );
 
   return (

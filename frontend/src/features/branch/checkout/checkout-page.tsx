@@ -5,7 +5,7 @@ import { ErpLayout } from "../../shared/erp-layout";
 import { BRANCH_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { useCart } from "../../../app/branch/branch-context";
 import { placeOrder as demoPlaceOrder } from "../../../shared/lib/demo-store";
-import { WAREHOUSE_STOCK_ITEMS } from "../../../shared/data/warehouse-mock-data";
+import { useWarehouseProducts } from "../../../app/warehouse/warehouse-context";
 
 type PaymentMethod = "UPI" | "Credit Card" | "Debit Card" | "Net Banking" | "Bank Transfer";
 
@@ -26,6 +26,7 @@ const GST_PERCENT = 5;
 export function CheckoutPage() {
   const navigate = useNavigate();
   const { cartItems, clearCart } = useCart();
+  const warehouseProducts = useWarehouseProducts();
   const [method, setMethod] = useState<PaymentMethod>("UPI");
   const [isPaying, setIsPaying] = useState(false);
   const [orderId, setOrderId] = useState<string | null>(null);
@@ -47,9 +48,9 @@ export function CheckoutPage() {
     expectedDate.setDate(expectedDate.getDate() + 2);
     const expectedDelivery = expectedDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
-    // Map cart items to demo order items, looking up available stock
+    // Map cart items to demo order items, looking up live stock from warehouse context
     const demoItems = cartItems.map((i) => {
-      const stockItem = WAREHOUSE_STOCK_ITEMS.find(
+      const stockItem = warehouseProducts?.find(
         (s) => s.productName.toLowerCase() === i.name.toLowerCase()
       );
       return {
