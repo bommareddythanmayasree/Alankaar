@@ -387,9 +387,6 @@ export function WarehouseStockManagementPage() {
               <Field label="Selling Price (Rs.)">
                 <input type="number" className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.sellingPrice} onChange={(e) => setForm((s) => ({ ...s, sellingPrice: Number(e.target.value) }))} />
               </Field>
-              <Field label="Supplier">
-                <input className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.supplier} onChange={(e) => setForm((s) => ({ ...s, supplier: e.target.value }))} />
-              </Field>
               <Field label="Batch Number">
                 <input className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.batchNumber} onChange={(e) => setForm((s) => ({ ...s, batchNumber: e.target.value }))} />
               </Field>
