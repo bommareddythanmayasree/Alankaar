@@ -243,6 +243,7 @@ type WarehouseContextValue = {
   deleteProduct: (id: string) => void;
   approveProductFromAdmin: (pendingId: string) => void;
   rejectProductFromAdmin: (pendingId: string) => void;
+  syncFromLocalStorage: () => void;
   logs: StockLog[];
   orders: VerificationOrder[];
   approveOrder: (id: string) => void;
@@ -424,6 +425,11 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
     },
     []
   );
+
+  /** Re-reads all product data from localStorage — called by the Sync Inventory button */
+  const syncFromLocalStorage = useCallback(() => {
+    setProducts(seedItems());
+  }, []);
 
   const updateProduct = useCallback(
     (id: string, form: Omit<StockItem, "id">) => {
@@ -732,6 +738,7 @@ export function WarehouseProvider({ children }: { children: React.ReactNode }) {
         deleteProduct,
         approveProductFromAdmin,
         rejectProductFromAdmin,
+        syncFromLocalStorage,
         logs,
         orders,
         approveOrder,

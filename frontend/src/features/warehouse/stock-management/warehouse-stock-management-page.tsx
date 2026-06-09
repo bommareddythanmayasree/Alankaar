@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import { Eye, ImageIcon, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Eye, ImageIcon, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { useWarehouse, type StockItem, type StockStatus } from "../../../app/warehouse/warehouse-context";
@@ -59,7 +59,7 @@ function stockIndicator(item: StockItem): { label: string; cls: string } | null 
 const PLACEHOLDER = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' fill='%23F1F5F9'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='10' fill='%2394A3B8'%3ENo Image%3C/text%3E%3C/svg%3E";
 
 export function WarehouseStockManagementPage() {
-  const { products, addProductPendingApproval, updateProduct, deleteProduct } = useWarehouse();
+  const { products, addProductPendingApproval, updateProduct, deleteProduct, syncFromLocalStorage } = useWarehouse();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All Categories");
   const [approvalFilter, setApprovalFilter] = useState<"All" | "Approved" | "Pending" | "Rejected">("All");
@@ -70,7 +70,20 @@ export function WarehouseStockManagementPage() {
   const [imageMode, setImageMode] = useState<"select" | "upload">("select");
   const [imageSelectQuery, setImageSelectQuery] = useState("");
   const [pendingToast, setPendingToast] = useState<string | null>(null);
+  const [lastSynced, setLastSynced] = useState<string | null>(null);
+  const [syncToast, setSyncToast] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSyncInventory = () => {
+    syncFromLocalStorage();
+    const now = new Date();
+    const ts = now.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) +
+      " " +
+      now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+    setLastSynced(ts);
+    setSyncToast(true);
+    setTimeout(() => setSyncToast(false), 3000);
+  };
 
   const filteredRows = useMemo(() => {
     return products.filter((row) => {
@@ -143,6 +156,13 @@ export function WarehouseStockManagementPage() {
         </div>
       )}
 
+      {/* Sync success toast */}
+      {syncToast && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <span className="font-semibold">✓ Inventory synchronized successfully</span>
+        </div>
+      )}
+
       <div className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <div className="relative w-full max-w-[320px]">
@@ -176,6 +196,18 @@ export function WarehouseStockManagementPage() {
             <Plus className="h-4 w-4" />
             Add Product
           </button>
+          <button
+            onClick={handleSyncInventory}
+            className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Sync Inventory
+          </button>
+          {lastSynced && (
+            <span className="text-xs text-slate-500 whitespace-nowrap">
+              Last Synced: {lastSynced}
+            </span>
+          )}
         </div>
 
         <div className="overflow-x-auto">
