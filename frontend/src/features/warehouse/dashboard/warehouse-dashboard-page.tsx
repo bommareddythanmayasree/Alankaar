@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Boxes,
@@ -19,9 +19,9 @@ import {
   WAREHOUSE_SUMMARY,
   WAREHOUSE_PIE_DATA,
   WAREHOUSE_RECENT_ORDERS,
-  WAREHOUSE_LOW_STOCK,
 } from "../../../shared/data/warehouse-mock-data";
-import { getLowStockAlerts, type DemoLowStockAlert } from "../../../shared/lib/demo-store";
+import { LOW_STOCK_THRESHOLD } from "../../../shared/lib/demo-store";
+import { useWarehouse } from "../../../app/warehouse/warehouse-context";
 
 const SIDEBAR_LABELS = [
   "Dashboard",
@@ -46,40 +46,42 @@ type KpiCard = {
   icon: ReactNode;
 };
 
-const inventoryCards: KpiCard[] = [
-  {
-    title: "Total Products",
-    value: s.totalProducts,
-    note: "+12 this month",
-    bg: "bg-[#E9EDFF]",
-    iconColor: "text-indigo-600",
-    icon: <Package size={22} />,
-  },
-  {
-    title: "Total Stock Qty",
-    value: s.totalStockQuantity.toLocaleString("en-IN"),
-    note: "Units in warehouse",
-    bg: "bg-[#FFF3CB]",
-    iconColor: "text-amber-600",
-    icon: <Boxes size={22} />,
-  },
-  {
-    title: "Inventory Value",
-    value: s.inventoryValue,
-    note: "Estimated value",
-    bg: "bg-[#E2FFE6]",
-    iconColor: "text-emerald-600",
-    icon: <IndianRupee size={22} />,
-  },
-  {
-    title: "Low Stock Items",
-    value: s.lowStockItems,
-    note: "Need restocking",
-    bg: "bg-[#FFE6D2]",
-    iconColor: "text-orange-600",
-    icon: <AlertTriangle size={22} />,
-  },
-];
+function buildInventoryCards(lowStockCount: number): KpiCard[] {
+  return [
+    {
+      title: "Total Products",
+      value: s.totalProducts,
+      note: "+12 this month",
+      bg: "bg-[#E9EDFF]",
+      iconColor: "text-indigo-600",
+      icon: <Package size={22} />,
+    },
+    {
+      title: "Total Stock Qty",
+      value: s.totalStockQuantity.toLocaleString("en-IN"),
+      note: "Units in warehouse",
+      bg: "bg-[#FFF3CB]",
+      iconColor: "text-amber-600",
+      icon: <Boxes size={22} />,
+    },
+    {
+      title: "Inventory Value",
+      value: s.inventoryValue,
+      note: "Estimated value",
+      bg: "bg-[#E2FFE6]",
+      iconColor: "text-emerald-600",
+      icon: <IndianRupee size={22} />,
+    },
+    {
+      title: "Low Stock Items",
+      value: lowStockCount,
+      note: "Need restocking",
+      bg: "bg-[#FFE6D2]",
+      iconColor: "text-orange-600",
+      icon: <AlertTriangle size={22} />,
+    },
+  ];
+}
 
 const orderCards: KpiCard[] = [
   {
@@ -187,24 +189,21 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<
 }
 
 export function WarehouseDashboardPage() {
-  const [liveAlerts, setLiveAlerts] = useState<DemoLowStockAlert[]>([]);
+  const { products } = useWarehouse();
+  const [showAllLowStock, setShowAllLowStock] = useState(false);
 
-  useEffect(() => {
-    function syncAlerts() {
-      setLiveAlerts(getLowStockAlerts().filter((a) => !a.resolved));
-    }
-    syncAlerts();
-    window.addEventListener("focus", syncAlerts);
-    return () => window.removeEventListener("focus", syncAlerts);
-  }, []);
+  // Compute low stock directly from live warehouse products — single source of truth
+  const sortedLowStock = useMemo(() =>
+    products
+      .filter((p) => p.currentStock < LOW_STOCK_THRESHOLD)
+      .map((p) => ({ name: p.productName, qty: p.currentStock }))
+      .sort((a, b) => a.qty - b.qty),
+    [products]
+  );
 
-  // Merge live alerts with static low stock data — live alerts take priority
-  const liveAlertNames = new Set(liveAlerts.map((a) => a.productName));
-  const staticLowStock = WAREHOUSE_LOW_STOCK.filter((item) => !liveAlertNames.has(item.name));
-  const combinedLowStock = [
-    ...liveAlerts.map((a) => ({ name: a.productName, qty: a.currentStock, isLive: true })),
-    ...staticLowStock.map((item) => ({ ...item, isLive: false })),
-  ];
+  const visibleLowStock = showAllLowStock ? sortedLowStock : sortedLowStock.slice(0, 5);
+
+  const inventoryCards = buildInventoryCards(sortedLowStock.length);
 
   return (
     <ErpLayout
@@ -303,26 +302,29 @@ export function WarehouseDashboardPage() {
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-lg font-semibold">Low Stock Alerts</h3>
-              <button className="text-sm font-semibold text-[#0A3A92]">View All</button>
+              <span className="text-xs text-slate-400">{sortedLowStock.length} items</span>
             </div>
             <div className="space-y-2">
-              {combinedLowStock.map((item) => (
+              {visibleLowStock.map((item) => (
                 <div key={item.name} className="flex items-center justify-between rounded-md bg-[#F7FAFD] px-3 py-2">
                   <span className="text-sm">
-                    {item.name}
-                    {item.isLive && (
-                      <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-                        LIVE
-                      </span>
-                    )}
+                    ⚠ {item.name}
                   </span>
                   <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">
-                    Qty: {item.qty}
+                    Current Stock: {item.qty}
                   </span>
                 </div>
               ))}
-              {combinedLowStock.length === 0 && (
+              {sortedLowStock.length === 0 && (
                 <p className="py-3 text-center text-sm text-slate-400">No low stock alerts</p>
+              )}
+              {sortedLowStock.length > 5 && (
+                <button
+                  onClick={() => setShowAllLowStock((v) => !v)}
+                  className="mt-1 w-full rounded-md border border-slate-200 py-1.5 text-xs font-semibold text-[#0A3A92] hover:bg-slate-50"
+                >
+                  {showAllLowStock ? "Show Less" : `Show More (${sortedLowStock.length - 5} more)`}
+                </button>
               )}
             </div>
           </div>

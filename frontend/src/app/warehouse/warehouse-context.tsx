@@ -171,7 +171,7 @@ function seedItems(): StockItem[] {
       id: p.id,
       productName: p.productName,
       category: p.category as StockCategory,
-      currentStock: p.stock,
+      currentStock: getLiveStock(p.id, p.stock),
       minimumStock: 10,
       maximumStock: p.stock * 3,
       unit: p.unit,
