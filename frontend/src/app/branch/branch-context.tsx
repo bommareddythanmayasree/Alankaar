@@ -352,3 +352,5 @@ export function useCatalog() {
   if (!ctx) throw new Error("useCatalog must be used within BranchProvider");
   return ctx;
 }
+
+

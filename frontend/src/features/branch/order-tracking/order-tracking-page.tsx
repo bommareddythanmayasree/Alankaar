@@ -1,51 +1,57 @@
-﻿import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { CreditCard, FileText, X } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { BRANCH_NAV, buildSidebar } from "../../../app/navigation/sidebars";
+import { BRANCH_SIDEBAR_LABELS } from "../../../shared/data/branch-mock-data";
 import { BRANCH_TRACKING_ORDERS } from "../../../shared/data/branch-mock-data";
 import {
   getDemoOrder,
   getDemoTrackingStatus,
   payForOrder,
+  getWarehouseOrders,
+  getWorkflowOrders,
   type DemoTrackingStatus,
+  type WarehouseOrderStatus,
+  type WorkflowLifecycleStatus,
 } from "../../../shared/lib/demo-store";
 
 type TrackingStatus =
   | "Pending Approval"
   | "Approved"
   | "Rejected"
-  | "Payment Completed"
-  | "Packed"
-  | "Dispatched"
+  | "Production Started"
+  | "Ready For Dispatch"
+  | "Morning Dispatch"
+  | "Evening Dispatch"
   | "In Transit"
-  | "Delivered";
-
-const SIDEBAR_LABELS = [
-  "Dashboard",
-  "Employee Management",
-  "Product Catalog",
-  "Shopping Cart",
-  "Checkout",
-  "Order Tracking",
-  "Order History",
-  "Notifications",
-  "Settings",
-] as const;
+  | "Delivered"
+  | "Bill Generated"
+  | "Payment Pending"
+  | "Payment Completed"
+  | "Order Closed";
 
 const TIMELINE: TrackingStatus[] = [
   "Pending Approval",
   "Approved",
-  "Payment Completed",
-  "Packed",
-  "Dispatched",
+  "Production Started",
+  "Ready For Dispatch",
+  "Morning Dispatch",
+  "Evening Dispatch",
   "In Transit",
   "Delivered",
+  "Bill Generated",
+  "Payment Pending",
+  "Payment Completed",
+  "Order Closed",
 ];
 
 function statusColor(status: string) {
-  if (status === "Delivered") return "bg-emerald-100 text-emerald-700";
+  if (status === "Delivered" || status === "Payment Completed" || status === "Order Closed") return "bg-emerald-100 text-emerald-700";
   if (status === "In Transit") return "bg-sky-100 text-sky-700";
-  if (status === "Approved" || status === "Payment Completed") return "bg-indigo-100 text-indigo-700";
+  if (status === "Morning Dispatch" || status === "Evening Dispatch") return "bg-indigo-100 text-indigo-700";
+  if (status === "Approved" || status === "Production Started") return "bg-indigo-100 text-indigo-700";
+  if (status === "Bill Generated" || status === "Payment Pending") return "bg-amber-100 text-amber-700";
+  if (status === "Ready For Dispatch") return "bg-violet-100 text-violet-700";
   if (status === "Rejected") return "bg-rose-100 text-rose-700";
   return "bg-amber-100 text-amber-700";
 }
@@ -82,34 +88,86 @@ function buildSeedOrders(): TrackOrder[] {
   });
 }
 
+// Map WorkflowLifecycleStatus → TrackingStatus
+function workflowStatusToTracking(s: WorkflowLifecycleStatus): TrackingStatus {
+  const map: Record<WorkflowLifecycleStatus, TrackingStatus> = {
+    "Order Placed":         "Pending Approval",
+    "Under Review":         "Pending Approval",
+    "Approved":             "Approved",
+    "Added To Production":  "Production Started",
+    "Production Started":   "Production Started",
+    "Production Completed": "Production Started",
+    "Ready For Dispatch":   "Ready For Dispatch",
+    "Morning Dispatch":     "Morning Dispatch",
+    "Evening Dispatch":     "Evening Dispatch",
+    "In Transit":           "In Transit",
+    "Delivered":            "Delivered",
+    "Invoice Generated":    "Bill Generated",
+    "Payment Pending":      "Payment Pending",
+    "Payment Completed":    "Payment Completed",
+    "Order Closed":         "Order Closed",
+  };
+  return map[s] ?? "Pending Approval";
+}
+
+// Map WarehouseOrderStatus → TrackingStatus for order tracking timeline
+function warehouseStatusToTracking(s: WarehouseOrderStatus): TrackingStatus {
+  const map: Record<WarehouseOrderStatus, TrackingStatus> = {
+    "Under Review":       "Pending Approval",
+    "Approved":           "Approved",
+    "Production Started": "Production Started",
+    "Ready For Dispatch": "Ready For Dispatch",
+    "Morning Dispatch":   "Morning Dispatch",
+    "Evening Dispatch":   "Evening Dispatch",
+    "Delivered":          "Delivered",
+  };
+  return map[s] ?? "Pending Approval";
+}
+
 export function OrderTrackingPage() {
   const [demoOrder, setDemoOrder] = useState<TrackOrder | null>(null);
   const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
   const [invoicePreviewOrderId, setInvoicePreviewOrderId] = useState<string | null>(null);
 
-  // Load demo order from localStorage (re-sync on focus)
   useEffect(() => {
     function sync() {
       const stored = getDemoOrder();
       const trackStatus = getDemoTrackingStatus() as DemoTrackingStatus;
-      if (!stored) { setDemoOrder(null); return; }
 
+      // Check workflowOrders first (most up-to-date lifecycle)
+      const wOrders = getWorkflowOrders();
+      const legacyOrders = getWarehouseOrders();
       const now = new Date();
       const ts = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) +
         " " + now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 
+      if (!stored) { setDemoOrder(null); return; }
+
+      // Check workflowOrders first for status
+      const matchedWF = wOrders.find(wo => wo.id === stored.id);
+      const matchedWO = legacyOrders.find(wo => wo.orderId === stored.id);
+
+      let effectiveStatus: TrackingStatus;
+      if (matchedWF) {
+        effectiveStatus = workflowStatusToTracking(matchedWF.status as WorkflowLifecycleStatus);
+      } else if (matchedWO) {
+        effectiveStatus = warehouseStatusToTracking(matchedWO.status);
+      } else {
+        effectiveStatus = trackStatus as TrackingStatus;
+      }
+
       const history: { status: string; timestamp: string; by: string }[] = [
         { status: "Pending Approval", timestamp: stored.orderDate + " (placed)", by: "Branch Manager" },
       ];
-      if (trackStatus !== "Pending Approval") {
-        history.push({ status: trackStatus, timestamp: ts, by: "Warehouse" });
+      if (effectiveStatus !== "Pending Approval") {
+        history.push({ status: effectiveStatus, timestamp: ts, by: "Warehouse" });
       }
 
       setDemoOrder({
         orderId: stored.id,
         orderDate: stored.orderDate,
         expectedDelivery: stored.expectedDelivery,
-        currentStatus: trackStatus as TrackingStatus,
+        currentStatus: effectiveStatus,
         amount: stored.approvedAmount ?? stored.amount,
         branch: stored.branch,
         items: stored.items.map((i) => ({
@@ -120,7 +178,7 @@ export function OrderTrackingPage() {
         })),
         statusHistory: history,
         paymentCompleted: stored.paymentStatus === "Paid",
-        invoiceNumber: stored.invoiceNumber ?? undefined,
+        invoiceNumber: stored.invoiceNumber ?? (matchedWF?.invoiceNumber) ?? undefined,
         paymentMethod: stored.paymentMethod,
         isDemo: true,
         isPartial: stored.isPartial ?? false,
@@ -128,7 +186,11 @@ export function OrderTrackingPage() {
     }
     sync();
     window.addEventListener("focus", sync);
-    return () => window.removeEventListener("focus", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("focus", sync);
+      window.removeEventListener("storage", sync);
+    };
   }, []);
 
   const allOrders = useMemo<TrackOrder[]>(() => {
@@ -145,16 +207,20 @@ export function OrderTrackingPage() {
     [selected]
   );
 
-  // Invoice data for demo order
   const hasInvoice = !!(selected?.isDemo && selected.invoiceNumber);
 
   const isApproved =
     selected?.currentStatus === "Approved" ||
-    selected?.currentStatus === "Payment Completed" ||
-    selected?.currentStatus === "Packed" ||
-    selected?.currentStatus === "Dispatched" ||
+    selected?.currentStatus === "Production Started" ||
+    selected?.currentStatus === "Ready For Dispatch" ||
+    selected?.currentStatus === "Morning Dispatch" ||
+    selected?.currentStatus === "Evening Dispatch" ||
     selected?.currentStatus === "In Transit" ||
-    selected?.currentStatus === "Delivered";
+    selected?.currentStatus === "Delivered" ||
+    selected?.currentStatus === "Bill Generated" ||
+    selected?.currentStatus === "Payment Pending" ||
+    selected?.currentStatus === "Payment Completed" ||
+    selected?.currentStatus === "Order Closed";
 
   const canPay =
     selected?.isDemo &&
@@ -168,7 +234,6 @@ export function OrderTrackingPage() {
     setPayingOrderId(selected.orderId);
     await new Promise((r) => setTimeout(r, 1200));
     payForOrder(selected.orderId);
-    // Re-sync
     const stored = getDemoOrder();
     if (stored && demoOrder) {
       setDemoOrder({
@@ -187,21 +252,16 @@ export function OrderTrackingPage() {
   if (!selected) return null;
 
   return (
-    <ErpLayout sidebarItems={buildSidebar(BRANCH_NAV, [...SIDEBAR_LABELS], "Order Tracking")}>
+    <ErpLayout sidebarItems={buildSidebar(BRANCH_NAV, [...BRANCH_SIDEBAR_LABELS], "Order Tracking")}>
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
         {/* Timeline */}
         <section className="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-8">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-xl font-semibold">Status Timeline</h3>
-            <select
-              value={effectiveId}
-              onChange={(e) => setSelectedOrderId(e.target.value)}
-              className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]"
-            >
+            <select value={effectiveId} onChange={(e) => setSelectedOrderId(e.target.value)}
+              className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]">
               {allOrders.map((order) => (
-                <option key={order.orderId} value={order.orderId}>
-                  {order.orderId}
-                </option>
+                <option key={order.orderId} value={order.orderId}>{order.orderId}</option>
               ))}
             </select>
           </div>
@@ -214,27 +274,13 @@ export function OrderTrackingPage() {
                 return (
                   <div key={status} className="flex flex-1 flex-col items-center">
                     <div className="flex w-full items-center">
-                      {idx > 0 && (
-                        <div className={`h-1 flex-1 ${done ? "bg-[#0A3A92]" : "bg-slate-200"}`} />
-                      )}
-                      <div
-                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold border-2 ${
-                          isCurrent
-                            ? "border-[#0A3A92] bg-[#0A3A92] text-white ring-4 ring-[#0A3A92]/20"
-                            : done
-                            ? "border-[#0A3A92] bg-[#0A3A92] text-white"
-                            : "border-slate-300 bg-white text-slate-400"
-                        }`}
-                      >
+                      {idx > 0 && <div className={`h-1 flex-1 ${done ? "bg-[#0A3A92]" : "bg-slate-200"}`} />}
+                      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold border-2 ${isCurrent ? "border-[#0A3A92] bg-[#0A3A92] text-white ring-4 ring-[#0A3A92]/20" : done ? "border-[#0A3A92] bg-[#0A3A92] text-white" : "border-slate-300 bg-white text-slate-400"}`}>
                         {idx + 1}
                       </div>
-                      {idx < TIMELINE.length - 1 && (
-                        <div className={`h-1 flex-1 ${done && idx < currentIdx ? "bg-[#0A3A92]" : "bg-slate-200"}`} />
-                      )}
+                      {idx < TIMELINE.length - 1 && <div className={`h-1 flex-1 ${done && idx < currentIdx ? "bg-[#0A3A92]" : "bg-slate-200"}`} />}
                     </div>
-                    <span className={`mt-2 text-center text-xs ${done ? "font-semibold text-slate-900" : "text-slate-500"}`}>
-                      {status}
-                    </span>
+                    <span className={`mt-2 text-center text-xs ${done ? "font-semibold text-slate-900" : "text-slate-500"}`}>{status}</span>
                   </div>
                 );
               })}
@@ -286,11 +332,10 @@ export function OrderTrackingPage() {
               <span className="text-slate-500">Status</span>
               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusColor(selected.currentStatus)}`}>
                 {selected.isPartial && (selected.currentStatus === "Approved" || selected.currentStatus === "Payment Completed")
-                  ? "Partially Approved"
-                  : selected.currentStatus}
+                  ? "Partially Approved" : selected.currentStatus}
               </span>
             </div>
-            <DetailRow label="Total Amount" value={`₹${new Intl.NumberFormat("en-IN").format(selected.amount)}`} />
+            <DetailRow label="Total Amount" value={`\u20B9${new Intl.NumberFormat("en-IN").format(selected.amount)}`} />
             {selected.paymentMethod && <DetailRow label="Payment Method" value={selected.paymentMethod} />}
             {selected.invoiceNumber && <DetailRow label="Invoice" value={selected.invoiceNumber} />}
           </div>
@@ -298,27 +343,27 @@ export function OrderTrackingPage() {
           {isApproved && (
             <div className="mt-4 space-y-2">
               {hasInvoice && (
-                <button
-                  onClick={() => setInvoicePreviewOrderId(selected.orderId)}
-                  className="flex w-full items-center justify-center gap-2 rounded-md border border-[#0A3A92] px-4 py-2.5 text-sm font-semibold text-[#0A3A92] hover:bg-[#EEF4FF]"
-                >
+                <button onClick={() => setInvoicePreviewOrderId(selected.orderId)}
+                  className="flex w-full items-center justify-center gap-2 rounded-md border border-[#0A3A92] px-4 py-2.5 text-sm font-semibold text-[#0A3A92] hover:bg-[#EEF4FF]">
                   <FileText className="h-4 w-4" />
                   View Invoice
                 </button>
               )}
               {canPay && (
-                <button
-                  onClick={handlePay}
-                  disabled={payingOrderId === selected.orderId}
-                  className="flex w-full items-center justify-center gap-2 rounded-md bg-[#0A3A92] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#083173] disabled:opacity-60"
-                >
+                <button onClick={handlePay} disabled={payingOrderId === selected.orderId}
+                  className="flex w-full items-center justify-center gap-2 rounded-md bg-[#0A3A92] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#083173] disabled:opacity-60">
                   <CreditCard className="h-4 w-4" />
                   {payingOrderId === selected.orderId ? "Processing..." : "Pay Now"}
                 </button>
               )}
               {selected.paymentCompleted && (
                 <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 font-semibold text-center">
-                  ✓ Payment Completed
+                  Payment Completed
+                </div>
+              )}
+              {selected.currentStatus === "Order Closed" && (
+                <div className="rounded-md border border-slate-200 bg-slate-100 px-3 py-2 text-xs text-slate-700 font-semibold text-center">
+                  Order Closed
                 </div>
               )}
             </div>
@@ -340,7 +385,7 @@ export function OrderTrackingPage() {
             </div>
             {selected.isPartial && (
               <p className="mt-2 rounded-md bg-orange-50 border border-orange-200 px-2 py-1.5 text-xs text-orange-700 font-medium">
-                ⚠ Partial fulfillment — invoice reflects approved quantities only.
+                Partial fulfillment — invoice reflects approved quantities only.
               </p>
             )}
           </div>
@@ -395,11 +440,9 @@ export function OrderTrackingPage() {
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => setInvoicePreviewOrderId(null)} className="h-10 rounded-md border border-slate-200 px-4 text-sm font-semibold">Close</button>
               {canPay && (
-                <button
-                  onClick={() => { setInvoicePreviewOrderId(null); handlePay(); }}
+                <button onClick={() => { setInvoicePreviewOrderId(null); handlePay(); }}
                   disabled={payingOrderId === selected.orderId}
-                  className="h-10 rounded-md bg-[#0A3A92] px-4 text-sm font-semibold text-white hover:bg-[#083173]"
-                >
+                  className="h-10 rounded-md bg-[#0A3A92] px-4 text-sm font-semibold text-white hover:bg-[#083173]">
                   Pay Now — &#8377;{new Intl.NumberFormat("en-IN").format(selected.amount)}
                 </button>
               )}
@@ -419,3 +462,5 @@ function DetailRow({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+

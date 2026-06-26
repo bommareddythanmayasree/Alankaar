@@ -101,3 +101,5 @@ export function getProductImage(productName: string): string {
   const key = productName.toLowerCase().trim();
   return PRODUCT_IMAGE_MAP[key] ?? kajuKatli;
 }
+
+

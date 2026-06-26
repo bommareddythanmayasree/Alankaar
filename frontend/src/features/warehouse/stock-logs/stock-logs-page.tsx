@@ -14,20 +14,9 @@ import {
 import { ErpLayout } from "../../shared/erp-layout";
 import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { useWarehouse, type LogAction, type StockLog } from "../../../app/warehouse/warehouse-context";
+import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
 
 type DateFilter = "Today" | "This Week" | "This Month" | "Custom";
-
-const SIDEBAR_LABELS = [
-  "Dashboard",
-  "Stock Management",
-  "Stock Logs",
-  "Order Verification",
-  "Order Management",
-  "Invoice Generation",
-  "Dispatch Tracking",
-  "Notifications",
-  "Settings",
-] as const;
 
 function actionClass(action: LogAction) {
   switch (action) {
@@ -118,7 +107,7 @@ export function StockLogsPage() {
   return (
     <ErpLayout
       title="Stock Logs"
-      sidebarItems={buildSidebar(WAREHOUSE_NAV, [...SIDEBAR_LABELS], "Stock Logs")}
+      sidebarItems={buildSidebar(WAREHOUSE_NAV, [...WAREHOUSE_SIDEBAR_LABELS], "Stock Logs")}
     >
       <p className="mb-4 text-slate-600">Track all stock-in, stock-out, adjustments and audit events</p>
 
@@ -223,3 +212,5 @@ export function StockLogsPage() {
     </ErpLayout>
   );
 }
+
+

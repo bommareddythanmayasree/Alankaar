@@ -50,3 +50,5 @@ export function NotificationsList({ items }: { items: AppNotification[] }) {
     </div>
   );
 }
+
+

@@ -2,17 +2,17 @@
 // Keep values consistent across all Admin Portal pages.
 
 export const ADMIN_SUMMARY = {
-  totalRevenue: "₹98,76,430",
+  totalRevenue: "?98,76,430",
   totalOrders: 3482,
   totalProducts: 120,
   totalBranches: 17,
-  totalStockValue: "₹78,50,000",
+  totalStockValue: "?78,50,000",
   pendingOrders: 145,
   approvedOrders: 978,
   rejectedOrders: 120,
   deliveredOrders: 856,
-  averageOrderValue: "₹2,836",
-  refunds: "₹1,24,580",
+  averageOrderValue: "?2,836",
+  refunds: "?1,24,580",
 };
 
 export const ADMIN_REVENUE_TREND = [
@@ -60,8 +60,15 @@ export const ADMIN_SIDEBAR_LABELS = [
   "Order Analytics",
   "AI Recommendations",
   "Product Approval Requests",
+  "Business Intelligence",
+  "Demand vs Delivery",
+  "Product Performance",
+  "Shortage Analytics",
+  "Management Insights",
   "Notifications",
   "Settings",
 ] as const;
 
 export type AdminSidebarLabel = typeof ADMIN_SIDEBAR_LABELS[number];
+
+

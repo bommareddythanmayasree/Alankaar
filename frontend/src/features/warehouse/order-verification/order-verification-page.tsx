@@ -8,20 +8,14 @@ import {
   approveOrder as demoApprove,
   rejectOrder as demoReject,
   type DemoOrder,
+  getWarehouseOrders,
+  approveWarehouseOrder,
+  calcOrderAmount,
+  type WarehouseOrder,
+  updateWorkflowOrderStatus,
 } from "../../../shared/lib/demo-store";
 import { useWarehouse } from "../../../app/warehouse/warehouse-context";
-
-const SIDEBAR_LABELS = [
-  "Dashboard",
-  "Stock Management",
-  "Stock Logs",
-  "Order Verification",
-  "Order Management",
-  "Invoice Generation",
-  "Dispatch Tracking",
-  "Notifications",
-  "Settings",
-] as const;
+import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
 
 type VerifyStatus = "Pending" | "Approved" | "Rejected" | "Partial";
 
@@ -39,6 +33,8 @@ type OrderRow = {
   paymentStatus?: "Pending" | "Completed";
   invoiceNumber?: string;
   isDemo?: boolean;
+  isWarehouseOrder?: boolean;
+  warehouseStatus?: string;
 };
 
 function seedOrders(): OrderRow[] {
@@ -51,6 +47,67 @@ function seedOrders(): OrderRow[] {
     invoiceNumber: undefined,
     isDemo: false,
   }));
+}
+
+// ── Status message mapping ────────────────────────────────────────────────────
+const WAREHOUSE_STATUS_MESSAGES: Record<string, string> = {
+  "Approved":             "Approved for production",
+  "Added To Production":  "Added to production queue",
+  "Production Started":   "In production",
+  "Production Completed": "Production completed",
+  "Ready For Dispatch":   "Ready for dispatch",
+  "Morning Dispatch":     "Dispatched (Morning Slot)",
+  "Evening Dispatch":     "Dispatched (Evening Slot)",
+  "In Transit":           "In transit",
+  "Delivered":            "Awaiting invoice generation",
+  "Invoice Generated":    "Awaiting payment from branch",
+  "Payment Pending":      "Awaiting payment from branch",
+  "Payment Completed":    "Payment completed",
+  "Order Closed":         "Order closed",
+};
+
+function getWarehouseStatusMessage(warehouseStatus: string | undefined): string | null {
+  if (!warehouseStatus) return null;
+  return WAREHOUSE_STATUS_MESSAGES[warehouseStatus] ?? null;
+}
+
+function warehouseOrderToRow(o: WarehouseOrder): OrderRow {
+  const statusMap: Record<string, VerifyStatus> = {
+    "Under Review": "Pending",
+    "Approved": "Approved",
+    "Production Started": "Approved",
+    "Ready For Dispatch": "Approved",
+    "Morning Dispatch": "Approved",
+    "Evening Dispatch": "Approved",
+    "Delivered": "Approved",
+  };
+  // Use stored amount if present, otherwise calculate from product catalog
+  const storedAmount = o.amount ?? 0;
+  const amount = storedAmount > 0
+    ? storedAmount
+    : calcOrderAmount(o.products.map(p => ({ name: p.name, qty: p.qty })));
+  return {
+    id: o.orderId,
+    branch: o.branch,
+    date: new Date(o.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+    itemsCount: o.products.length,
+    amount,
+    status: statusMap[o.status] ?? "Pending",
+    items: o.products.map(p => ({ name: p.name, requested: p.qty, available: p.qty })),
+    partialFulfillment: false,
+    emailSent: false,
+    paymentStatus: undefined,
+    invoiceNumber: undefined,
+    isDemo: true,
+    isWarehouseOrder: true,
+    warehouseStatus: o.status,
+  };
+}
+
+function buildOrders(): OrderRow[] {
+  const warehouseRows = getWarehouseOrders().map(warehouseOrderToRow);
+  const mockRows = seedOrders().filter(m => !warehouseRows.some(w => w.id === m.id));
+  return [...warehouseRows, ...mockRows];
 }
 
 function demoToRow(d: DemoOrder): OrderRow {
@@ -80,9 +137,10 @@ function statusClass(status: VerifyStatus) {
 export function OrderVerificationPage() {
   // Local state: mutable list of orders (mock + demo)
   const [orders, setOrders] = useState<OrderRow[]>(() => {
-    const base = seedOrders();
+    const base = buildOrders();
     const demo = getDemoOrder();
-    if (demo) return [demoToRow(demo), ...base];
+    // Only add the legacy demo order if it's not already covered by warehouseOrders
+    if (demo && !base.some(o => o.id === demo.id)) return [demoToRow(demo), ...base];
     return base;
   });
 
@@ -100,8 +158,8 @@ export function OrderVerificationPage() {
     function sync() {
       const demo = getDemoOrder();
       setOrders(() => {
-        const base = seedOrders();
-        if (!demo) return base;
+        const base = buildOrders();
+        if (!demo || base.some(o => o.id === demo.id)) return base;
         return [demoToRow(demo), ...base];
       });
     }
@@ -155,7 +213,32 @@ export function OrderVerificationPage() {
   };
 
   function doApprove(order: OrderRow) {
-    if (order.isDemo) {
+    if (order.isWarehouseOrder) {
+      // Approve in shared localStorage so Branch My Orders picks it up
+      approveWarehouseOrder(order.id);
+      // Sync into workflowOrders so My Orders, Order Tracking, and Production Planning update.
+      // Pass seedData so the order is created if not yet present in workflowOrders.
+      updateWorkflowOrderStatus(order.id, "Approved", {
+        branch: order.branch,
+        date: order.date,
+        time: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }),
+        priority: "Normal",
+        value: order.amount,
+        items: order.items.map(i => ({
+          product: i.name,
+          orderedQty: i.requested,
+          approvedQty: i.approved ?? Math.min(i.requested, i.available),
+          rejectedQty: Math.max(0, i.requested - Math.min(i.requested, i.available)),
+          unit: "units",
+        })),
+      });
+      setOrders(prev =>
+        prev.map(o => o.id === order.id
+          ? { ...o, status: "Approved" as VerifyStatus, warehouseStatus: "Approved", paymentStatus: "Pending" }
+          : o
+        )
+      );
+    } else if (order.isDemo) {
       // Ensure the demo order is registered in warehouse context so approveOrder can find it
       const alreadyInContext = contextOrders.some((c) => c.id === order.id);
       if (!alreadyInContext) {
@@ -178,6 +261,22 @@ export function OrderVerificationPage() {
       warehouseApprove(order.id);
       // Also update demo-store tracking status
       demoApprove(order.id, order.branch);
+      // Sync into workflowOrders so My Orders, Order Tracking, and Production Planning update.
+      // Pass seedData so the order is created if not yet present in workflowOrders.
+      updateWorkflowOrderStatus(order.id, "Approved", {
+        branch: order.branch,
+        date: order.date,
+        time: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }),
+        priority: "Normal",
+        value: order.amount,
+        items: order.items.map(i => ({
+          product: i.name,
+          orderedQty: i.requested,
+          approvedQty: i.approved ?? Math.min(i.requested, i.available),
+          rejectedQty: Math.max(0, i.requested - Math.min(i.requested, i.available)),
+          unit: "units",
+        })),
+      });
     } else {
       // Non-demo (mock) orders: update local state directly
       setOrders((prev) =>
@@ -212,7 +311,7 @@ export function OrderVerificationPage() {
   const confirmReject = () => {
     if (!rejectingId || !rejectReason.trim()) return;
     const order = orders.find((o) => o.id === rejectingId);
-    if (order?.isDemo) demoReject(rejectingId, rejectReason.trim());
+    if (order?.isDemo && !order.isWarehouseOrder) demoReject(rejectingId, rejectReason.trim());
     setOrders((prev) =>
       prev.map((o) =>
         o.id === rejectingId
@@ -227,7 +326,7 @@ export function OrderVerificationPage() {
   return (
     <ErpLayout
       title="Order Verification"
-      sidebarItems={buildSidebar(WAREHOUSE_NAV, [...SIDEBAR_LABELS], "Order Verification")}
+      sidebarItems={buildSidebar(WAREHOUSE_NAV, [...WAREHOUSE_SIDEBAR_LABELS], "Order Verification")}
     >
       <p className="mb-4 text-slate-600">Review and verify branch orders</p>
 
@@ -356,19 +455,22 @@ export function OrderVerificationPage() {
                     Invoice: <span className="font-semibold text-slate-700">{selected.invoiceNumber}</span>
                   </p>
                 )}
-                {(selected.status === "Approved" || selected.status === "Partial") && (
-                  <div className="mt-2">
-                    {selected.paymentStatus === "Completed" ? (
-                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                        ✓ Payment Received — Ready for dispatch
+                {(selected.status === "Approved" || selected.status === "Partial") && (() => {
+                  const msg = getWarehouseStatusMessage(selected.warehouseStatus);
+                  if (!msg) return null;
+                  // Only show payment messages after Invoice Generated
+                  const isPaymentMsg = msg.toLowerCase().includes("payment") || msg.toLowerCase().includes("awaiting payment");
+                  const isPostInvoice = ["Invoice Generated", "Payment Pending", "Payment Completed", "Order Closed"]
+                    .includes(selected.warehouseStatus ?? "");
+                  if (isPaymentMsg && !isPostInvoice) return null;
+                  return (
+                    <div className="mt-2">
+                      <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">
+                        {msg}
                       </span>
-                    ) : (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                        Awaiting payment from branch
-                      </span>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="space-y-2">
@@ -480,3 +582,5 @@ export function OrderVerificationPage() {
     </ErpLayout>
   );
 }
+
+

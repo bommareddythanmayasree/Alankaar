@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/auth-context";
 import { LoginPage } from "../features/auth/login-page";
@@ -12,6 +12,13 @@ import { OrderAnalyticsPage } from "../features/admin/order-analytics/order-anal
 import { AdminNotificationsPage } from "../features/admin/notifications/admin-notifications-page";
 import { AdminSettingsPage } from "../features/admin/settings/admin-settings-page";
 import { ProductApprovalRequestsPage } from "../features/admin/product-approval-requests/product-approval-requests-page";
+// Demo admin pages
+import { BusinessIntelligencePage } from "../features/admin/business-intelligence/business-intelligence-page";
+import { DemandVsDeliveryPage } from "../features/admin/demand-vs-delivery/demand-vs-delivery-page";
+import { ProductPerformancePage } from "../features/admin/product-performance/product-performance-page";
+import { ShortageAnalyticsPage } from "../features/admin/shortage-analytics/shortage-analytics-page";
+import { ManagementInsightsPage } from "../features/admin/management-insights/management-insights-page";
+// Warehouse pages
 import { WarehouseDashboardPage } from "../features/warehouse/dashboard/warehouse-dashboard-page";
 import { WarehouseStockManagementPage } from "../features/warehouse/stock-management/warehouse-stock-management-page";
 import { OrderVerificationPage } from "../features/warehouse/order-verification/order-verification-page";
@@ -21,6 +28,14 @@ import { DispatchTrackingPage } from "../features/warehouse/dispatch-tracking/di
 import { StockLogsPage } from "../features/warehouse/stock-logs/stock-logs-page";
 import { WarehouseNotificationsPage } from "../features/warehouse/notifications/warehouse-notifications-page";
 import { WarehouseSettingsPage } from "../features/warehouse/settings/warehouse-settings-page";
+// Demo warehouse pages
+import { ProductionPlanningPage } from "../features/warehouse/production-planning/production-planning-page";
+import { DeliveryTrackingPage } from "../features/warehouse/delivery-tracking/delivery-tracking-page";
+import { OrderClosurePage } from "../features/warehouse/order-closure/order-closure-page";
+import { CollectionsPage } from "../features/warehouse/collections/collections-page";
+import { WarehouseAdvanceOrdersPage } from "../features/warehouse/advance-orders/advance-orders-page";
+import { OrdersWorkflowPage } from "../features/warehouse/orders-workflow/orders-workflow-page";
+// Branch pages
 import { EmployeeManagementPage } from "../features/branch/employee-management/employee-management-page";
 import { ProductCatalogPage } from "../features/branch/product-catalog/product-catalog-page";
 import { ShoppingCartPage } from "../features/branch/shopping-cart/shopping-cart-page";
@@ -30,6 +45,12 @@ import { BranchDashboardPage } from "../features/branch/dashboard/branch-dashboa
 import { OrderHistoryPage } from "../features/branch/order-history/order-history-page";
 import { BranchNotificationsPage } from "../features/branch/notifications/branch-notifications-page";
 import { BranchSettingsPage } from "../features/branch/settings/branch-settings-page";
+// Demo branch pages
+import { PaymentStatusPage } from "../features/branch/payment-status/payment-status-page";
+import { PaymentHistoryPage } from "../features/branch/payment-history/payment-history-page";
+import { BranchAdvanceOrdersPage } from "../features/branch/advance-orders/branch-advance-orders-page";
+import { DemoBranchSelectorPage } from "../features/branch/demo-branch-selector/demo-branch-selector";
+import { MyOrdersPage } from "../features/branch/my-orders/my-orders-page";
 import { BranchProvider } from "./branch/branch-context";
 
 // WarehouseProvider lives in App.tsx above RouterProvider — single instance for all routes.
@@ -375,5 +396,172 @@ export const router = createBrowserRouter([
       </BranchShell>
     ),
   },
+  // ── Demo: Branch selector (REQ 20) ──────────────────────────────────────────
+  {
+    path: "/branch/select",
+    element: (
+      <BranchShell>
+        <Protected role="BRANCH_MANAGER">
+          <DemoBranchSelectorPage />
+        </Protected>
+      </BranchShell>
+    ),
+  },
+  // ── Demo: Branch payment & advance orders (REQ 6-9, 18) ──────────────────────
+  {
+    path: "/branch/payment-status",
+    element: (
+      <BranchShell>
+        <Protected role="BRANCH_MANAGER">
+          <PaymentStatusPage />
+        </Protected>
+      </BranchShell>
+    ),
+  },
+  {
+    path: "/branch/payment-history",
+    element: (
+      <BranchShell>
+        <Protected role="BRANCH_MANAGER">
+          <PaymentHistoryPage />
+        </Protected>
+      </BranchShell>
+    ),
+  },
+  {
+    path: "/branch/advance-orders",
+    element: (
+      <BranchShell>
+        <Protected role="BRANCH_MANAGER">
+          <BranchAdvanceOrdersPage />
+        </Protected>
+      </BranchShell>
+    ),
+  },
+  {
+    path: "/branch/my-orders",
+    element: (
+      <BranchShell>
+        <Protected role="BRANCH_MANAGER">
+          <MyOrdersPage />
+        </Protected>
+      </BranchShell>
+    ),
+  },
+  // ── Demo: Warehouse pages (REQ 1-5, 10, 18, 19) ──────────────────────────────
+  {
+    path: "/warehouse/production-planning",
+    element: (
+      <WarehouseShell>
+        <Protected role="WAREHOUSE_MANAGER">
+          <ProductionPlanningPage />
+        </Protected>
+      </WarehouseShell>
+    ),
+  },
+
+  {
+    path: "/warehouse/delivery-tracking",
+    element: (
+      <WarehouseShell>
+        <Protected role="WAREHOUSE_MANAGER">
+          <DeliveryTrackingPage />
+        </Protected>
+      </WarehouseShell>
+    ),
+  },
+  {
+    path: "/warehouse/order-closure",
+    element: (
+      <WarehouseShell>
+        <Protected role="WAREHOUSE_MANAGER">
+          <OrderClosurePage />
+        </Protected>
+      </WarehouseShell>
+    ),
+  },
+  {
+    path: "/warehouse/collections",
+    element: (
+      <WarehouseShell>
+        <Protected role="WAREHOUSE_MANAGER">
+          <CollectionsPage />
+        </Protected>
+      </WarehouseShell>
+    ),
+  },
+  {
+    path: "/warehouse/advance-orders",
+    element: (
+      <WarehouseShell>
+        <Protected role="WAREHOUSE_MANAGER">
+          <WarehouseAdvanceOrdersPage />
+        </Protected>
+      </WarehouseShell>
+    ),
+  },
+  {
+    path: "/warehouse/orders-workflow",
+    element: (
+      <WarehouseShell>
+        <Protected role="WAREHOUSE_MANAGER">
+          <OrdersWorkflowPage />
+        </Protected>
+      </WarehouseShell>
+    ),
+  },
+  // ── Demo: Admin analytics (REQ 11-16) ─────────────────────────────────────────
+  {
+    path: "/admin/business-intelligence",
+    element: (
+      <AppShell>
+        <Protected role="ADMIN">
+          <BusinessIntelligencePage />
+        </Protected>
+      </AppShell>
+    ),
+  },
+  {
+    path: "/admin/demand-vs-delivery",
+    element: (
+      <AppShell>
+        <Protected role="ADMIN">
+          <DemandVsDeliveryPage />
+        </Protected>
+      </AppShell>
+    ),
+  },
+  {
+    path: "/admin/product-performance",
+    element: (
+      <AppShell>
+        <Protected role="ADMIN">
+          <ProductPerformancePage />
+        </Protected>
+      </AppShell>
+    ),
+  },
+  {
+    path: "/admin/shortage-analytics",
+    element: (
+      <AppShell>
+        <Protected role="ADMIN">
+          <ShortageAnalyticsPage />
+        </Protected>
+      </AppShell>
+    ),
+  },
+  {
+    path: "/admin/management-insights",
+    element: (
+      <AppShell>
+        <Protected role="ADMIN">
+          <ManagementInsightsPage />
+        </Protected>
+      </AppShell>
+    ),
+  },
 ]);
+
+
 

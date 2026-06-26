@@ -5,6 +5,7 @@ import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { useWarehouse, type StockItem, type StockStatus } from "../../../app/warehouse/warehouse-context";
 import { PRODUCT_IMAGE_MAP, getProductImage } from "../../../shared/utils/product-images";
 import type { StockCategory } from "../../../shared/data/warehouse-mock-data";
+import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
 
 type FormState = Omit<StockItem, "id">;
 
@@ -31,18 +32,6 @@ const CATEGORIES: StockCategory[] = ["Bakery Products", "Sweets", "Snacks", "Bev
 const AVAILABLE_IMAGE_NAMES = Object.keys(PRODUCT_IMAGE_MAP).map(
   (k) => k.charAt(0).toUpperCase() + k.slice(1)
 );
-
-const SIDEBAR_LABELS = [
-  "Dashboard",
-  "Stock Management",
-  "Stock Logs",
-  "Order Verification",
-  "Order Management",
-  "Invoice Generation",
-  "Dispatch Tracking",
-  "Notifications",
-  "Settings",
-] as const;
 
 function stockIndicator(item: StockItem): { label: string; cls: string } | null {
   if (item.currentStock === 0) return { label: "Out of Stock", cls: "bg-red-100 text-red-700" };
@@ -145,7 +134,7 @@ export function WarehouseStockManagementPage() {
   return (
     <ErpLayout
       title="Stock Management"
-      sidebarItems={buildSidebar(WAREHOUSE_NAV, [...SIDEBAR_LABELS], "Stock Management")}
+      sidebarItems={buildSidebar(WAREHOUSE_NAV, [...WAREHOUSE_SIDEBAR_LABELS], "Stock Management")}
     >
       <p className="mb-4 text-slate-600">Manage your products and stock levels</p>
 
@@ -501,3 +490,5 @@ function Detail({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+

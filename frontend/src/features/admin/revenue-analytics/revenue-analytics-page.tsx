@@ -17,10 +17,10 @@ import { ADMIN_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { ADMIN_SIDEBAR_LABELS } from "../../../shared/data/admin-mock-data";
 
 const revenueSummary = [
-  { title: "Total Revenue", value: "₹98,76,430", note: "+12.8% vs last month", positive: true },
+  { title: "Total Revenue", value: "?98,76,430", note: "+12.8% vs last month", positive: true },
   { title: "Total Orders", value: "3,482", note: "+8.1% vs last month", positive: true },
-  { title: "Average Order Value", value: "₹2,836", note: "+4.2% vs last month", positive: true },
-  { title: "Refunds", value: "₹1,24,580", note: "+1.3% vs last month", positive: false },
+  { title: "Average Order Value", value: "?2,836", note: "+4.2% vs last month", positive: true },
+  { title: "Refunds", value: "?1,24,580", note: "+1.3% vs last month", positive: false },
 ];
 
 const revenueTrendData = [
@@ -81,8 +81,8 @@ export function RevenueAnalyticsPage() {
               <ComposedChart data={revenueTrendData}>
                 <CartesianGrid stroke="#EEF2F7" />
                 <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₹${Math.round(v / 1000)}k`} />
-                <Tooltip formatter={(value) => `₹${new Intl.NumberFormat("en-IN").format(Number(value ?? 0))}`} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `?${Math.round(v / 1000)}k`} />
+                <Tooltip formatter={(value) => `?${new Intl.NumberFormat("en-IN").format(Number(value ?? 0))}`} />
                 <Bar dataKey="lastYear" fill="#93C5FD" radius={[4, 4, 0, 0]} />
                 <Line type="monotone" dataKey="thisYear" stroke="#1D4ED8" strokeWidth={3} dot={{ r: 3 }} />
               </ComposedChart>
@@ -108,7 +108,7 @@ export function RevenueAnalyticsPage() {
                 <CartesianGrid stroke="#EEF2F7" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
                 <YAxis type="category" dataKey="branch" tick={{ fontSize: 12 }} width={90} />
-                <Tooltip formatter={(value) => `₹${new Intl.NumberFormat("en-IN").format(Number(value ?? 0))}`} />
+                <Tooltip formatter={(value) => `?${new Intl.NumberFormat("en-IN").format(Number(value ?? 0))}`} />
                 <Bar dataKey="revenue" fill="#0A3A92" radius={[0, 6, 6, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -170,4 +170,6 @@ function LegendRows({ rows }: { rows: { name: string; value: number; color: stri
     </div>
   );
 }
+
+
 

@@ -1,7 +1,8 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Eye, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { BRANCH_NAV, buildSidebar } from "../../../app/navigation/sidebars";
+import { BRANCH_SIDEBAR_LABELS } from "../../../shared/data/branch-mock-data";
 
 type EmployeeRole = "Cashier" | "Sales Staff" | "Inventory Staff" ;
 type EmployeeStatus = "Active" | "Inactive";
@@ -15,17 +16,6 @@ type Employee = {
   status: EmployeeStatus;
 };
 
-const SIDEBAR_LABELS = [
-  "Dashboard",
-  "Employee Management",
-  "Product Catalog",
-  "Shopping Cart",
-  "Checkout",
-  "Order Tracking",
-  "Order History",
-  "Notifications",
-  "Settings",
-] as const;
 
 const initialEmployees: Employee[] = [
   { id: "EMP-101", name: "Ravi Kumar", email: "ravi.gandhinagar@alankarsweets.com", phone: "+91 98765 12001", role: "Cashier", status: "Active" },
@@ -74,7 +64,7 @@ export function EmployeeManagementPage() {
 
   return (
     <ErpLayout
-      sidebarItems={buildSidebar(BRANCH_NAV, [...SIDEBAR_LABELS], "Employee Management")}
+      sidebarItems={buildSidebar(BRANCH_NAV, [...BRANCH_SIDEBAR_LABELS], "Employee Management")}
     >
       <p className="mb-4 text-slate-600">Manage Gandhi Nagar branch staff</p>
       <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -203,3 +193,5 @@ function Detail({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+

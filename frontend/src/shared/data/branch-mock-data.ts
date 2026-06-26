@@ -15,9 +15,9 @@ export const BRANCH_SUMMARY = {
   approvedOrders: 18,
   inTransitOrders: 7,
   deliveredOrders: 142,
-  cartValue: "₹3,240",
-  monthlyPurchase: "₹1,24,500",
-  inventoryValue: "₹42,000",
+  cartValue: "?3,240",
+  monthlyPurchase: "?1,24,500",
+  inventoryValue: "?42,000",
   pendingDeliveries: 7,
   ordersThisMonth: 24,
   monthlyPurchaseValue: 124500,
@@ -548,3 +548,24 @@ export const BRANCH_HISTORY_SUMMARY = {
   inTransit: 7,
   delivered: 142,
 };
+
+// Canonical branch sidebar labels — single source of truth for all branch pages.
+export const BRANCH_SIDEBAR_LABELS = [
+  "Dashboard",
+  "My Orders",
+  "Employee Management",
+  "Product Catalog",
+  "Shopping Cart",
+  "Checkout",
+  "Order Tracking",
+  "Order History",
+  "Payment Status",
+  "Payment History",
+  "Advance Orders",
+  "Notifications",
+  "Settings",
+] as const;
+
+export type BranchSidebarLabel = typeof BRANCH_SIDEBAR_LABELS[number];
+
+

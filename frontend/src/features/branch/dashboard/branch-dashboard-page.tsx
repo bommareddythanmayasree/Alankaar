@@ -1,8 +1,8 @@
-﻿import { ClipboardList, PackageCheck, ShoppingBag, Truck } from "lucide-react";
+import { ClipboardList, PackageCheck, ShoppingBag, Truck, Zap, PlayCircle, CreditCard } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { BRANCH_NAV, buildSidebar } from "../../../app/navigation/sidebars";
+import { BRANCH_SIDEBAR_LABELS } from "../../../shared/data/branch-mock-data";
 import {
-  BRANCH_NAME,
   BRANCH_MANAGER_NAME,
   BRANCH_MANAGER_EMAIL,
   BRANCH_MANAGER_PHONE,
@@ -10,19 +10,11 @@ import {
   BRANCH_SUMMARY,
   BRANCH_RECENT_ORDERS,
 } from "../../../shared/data/branch-mock-data";
+import { BRANCH_WORKFLOW_KPI, BRANCH_MY_ORDERS } from "../../../shared/data/workflow-mock-data";
+import { DEMO_BRANCH_ACCOUNTS } from "../../../shared/data/demo-mock-data";
+import { getCurrentDemoBranchName } from "../../../shared/lib/demo-store";
 import { useNavigate } from "react-router-dom";
 
-const SIDEBAR_LABELS = [
-  "Dashboard",
-  "Employee Management",
-  "Product Catalog",
-  "Shopping Cart",
-  "Checkout",
-  "Order Tracking",
-  "Order History",
-  "Notifications",
-  "Settings",
-] as const;
 
 const s = BRANCH_SUMMARY;
 
@@ -44,12 +36,18 @@ export function BranchDashboardPage() {
   const hour = now.getHours();
   const greeting = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
 
-const navigate = useNavigate();
+  const navigate = useNavigate();
+  const kpi = BRANCH_WORKFLOW_KPI;
+
+  const currentBranchName = getCurrentDemoBranchName();
+  const currentBranchAccount = DEMO_BRANCH_ACCOUNTS.find(b => b.name === currentBranchName);
+  const BRANCH_NAME = currentBranchName;
+  const branchOrders = BRANCH_MY_ORDERS.filter(o => o.branch === currentBranchName);
 
 
   return (
     <ErpLayout
-      sidebarItems={buildSidebar(BRANCH_NAV, [...SIDEBAR_LABELS], "Dashboard")}
+      sidebarItems={buildSidebar(BRANCH_NAV, [...BRANCH_SIDEBAR_LABELS], "Dashboard")}
     >
       {/* Greeting */}
       <div className="mb-5">
@@ -58,6 +56,68 @@ const navigate = useNavigate();
         </h2>
         <p className="mt-1 text-slate-500">Place orders, track status, and manage your branch operations.</p>
       </div>
+
+      {/* ── Workflow KPI Strip ──────────────────────────────────────────── */}
+      <div className="mb-5 rounded-xl border border-[#0A3A92]/20 bg-gradient-to-r from-[#0A3A92] to-[#1a5ab8] p-4 text-white">
+        <div className="mb-3 flex items-center gap-2">
+          <Zap className="h-4 w-4 text-amber-300" />
+          <span className="text-sm font-semibold text-white/90">Today's Order Pipeline</span>
+          <button onClick={() => navigate("/branch/my-orders")}
+            className="ml-auto rounded-lg bg-white/15 px-3 py-1 text-xs font-semibold text-white hover:bg-white/25 transition-colors">
+            View All Orders &rarr;
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
+          {[
+            { label: "Today's Orders",      value: kpi.todaysOrders,       icon: <ClipboardList className="h-5 w-5" />, accent: "bg-white/10" },
+            { label: "In Production",       value: kpi.inProduction,       icon: <PlayCircle className="h-5 w-5" />,    accent: "bg-blue-500/20" },
+            { label: "Ready For Dispatch",  value: kpi.readyForDispatch,   icon: <Truck className="h-5 w-5" />,         accent: "bg-violet-500/20" },
+            { label: "Pending Deliveries",  value: kpi.pendingDeliveries,  icon: <PackageCheck className="h-5 w-5" />,  accent: "bg-white/10" },
+            { label: "Outstanding Payments",value: kpi.outstandingPayments,icon: <CreditCard className="h-5 w-5" />,   accent: "bg-amber-500/20" },
+            { label: "Advance Orders",      value: kpi.advanceOrders,      icon: <ShoppingBag className="h-5 w-5" />,   accent: "bg-white/10" },
+          ].map(c => (
+            <div key={c.label} className={`rounded-lg ${c.accent} p-3`}>
+              <div className="mb-1 text-white/70">{c.icon}</div>
+              <div className="text-lg font-bold">{c.value}</div>
+              <div className="text-[11px] text-white/70 leading-tight">{c.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Active Order Status Banners ─────────────────────────────────── */}
+      {(() => {
+        const active = branchOrders.filter(o =>
+          ["Production Started","Added To Production","Ready For Dispatch","Dispatched","Delivered","Bill Generated"].includes(o.lifecycleStatus)
+        ).slice(0, 3);
+        if (active.length === 0) return null;
+        return (
+          <div className="mb-5 space-y-2">
+            {active.map(order => {
+              const cfg = {
+                "Production Started":  { bg: "bg-blue-600",    text: "YOUR ORDER IS IN PRODUCTION",          icon: <PlayCircle className="h-4 w-4" /> },
+                "Added To Production": { bg: "bg-blue-600",    text: "YOUR ORDER IS IN PRODUCTION",          icon: <PlayCircle className="h-4 w-4" /> },
+                "Ready For Dispatch":  { bg: "bg-violet-600",  text: "READY FOR DISPATCH",                    icon: <Truck className="h-4 w-4" /> },
+                "Dispatched":          { bg: "bg-indigo-600",  text: "OUT FOR DELIVERY",                      icon: <Truck className="h-4 w-4" /> },
+                "Delivered":           { bg: "bg-amber-500",   text: "PAYMENT PENDING",                       icon: <CreditCard className="h-4 w-4" /> },
+                "Bill Generated":      { bg: "bg-amber-500",   text: "PAYMENT PENDING — BILL GENERATED",      icon: <CreditCard className="h-4 w-4" /> },
+              }[order.lifecycleStatus as string] ?? { bg: "bg-slate-600", text: order.lifecycleStatus, icon: <ClipboardList className="h-4 w-4" /> };
+              return (
+                <button key={order.orderId} onClick={() => navigate("/branch/my-orders")}
+                  className={`${cfg.bg} flex w-full items-center gap-3 rounded-xl px-5 py-3 text-left text-white hover:opacity-90 transition-opacity`}>
+                  {cfg.icon}
+                  <div className="flex-1">
+                    <span className="text-sm font-bold tracking-wide">{cfg.text}</span>
+                    <span className="ml-3 text-xs text-white/75">{order.orderId} · {order.branch}</span>
+                  </div>
+                  <span className="text-xs text-white/70">View &rarr;</span>
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
+      {/* ── End Workflow ───────────────────────────────────────────────── */}
 
       {/* Quick Stats */}
       <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -135,8 +195,8 @@ const navigate = useNavigate();
 
           <div className="mt-5 rounded-lg bg-[#F0F4FF] p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Contact</p>
-            <p className="mt-1 text-sm font-medium text-slate-800">{BRANCH_MANAGER_NAME}</p>
-            <p className="text-xs text-slate-600">{BRANCH_MANAGER_EMAIL}</p>
+            <p className="mt-1 text-sm font-medium text-slate-800">{currentBranchAccount?.manager ?? BRANCH_MANAGER_NAME}</p>
+            <p className="text-xs text-slate-600">{currentBranchAccount?.email ?? BRANCH_MANAGER_EMAIL}</p>
             <p className="text-xs text-slate-600">{BRANCH_MANAGER_PHONE}</p>
           </div>
         </section>
@@ -162,3 +222,5 @@ function PerfRow({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+

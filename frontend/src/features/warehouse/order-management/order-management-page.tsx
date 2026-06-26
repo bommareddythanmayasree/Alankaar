@@ -3,6 +3,7 @@ import { ErpLayout } from "../../shared/erp-layout";
 import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { WAREHOUSE_ORDER_MANAGEMENT } from "../../../shared/data/warehouse-mock-data";
 import { useWarehouse } from "../../../app/warehouse/warehouse-context";
+import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
 
 type LifecycleStatus = "Pending" | "Approved" | "Packed" | "Dispatched" | "In Transit" | "Delivered";
 
@@ -17,18 +18,6 @@ type ManagedOrder = {
 };
 
 const statuses: LifecycleStatus[] = ["Pending", "Approved", "Packed", "Dispatched", "In Transit", "Delivered"];
-
-const SIDEBAR_LABELS = [
-  "Dashboard",
-  "Stock Management",
-  "Stock Logs",
-  "Order Verification",
-  "Order Management",
-  "Invoice Generation",
-  "Dispatch Tracking",
-  "Notifications",
-  "Settings",
-] as const;
 
 function statusClass(status: LifecycleStatus) {
   if (status === "Pending") return "bg-amber-100 text-amber-700";
@@ -111,7 +100,7 @@ export function OrderManagementPage() {
   return (
     <ErpLayout
       title="Order Management"
-      sidebarItems={buildSidebar(WAREHOUSE_NAV, [...SIDEBAR_LABELS], "Order Management")}
+      sidebarItems={buildSidebar(WAREHOUSE_NAV, [...WAREHOUSE_SIDEBAR_LABELS], "Order Management")}
     >
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
         <section className="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-4">
@@ -278,3 +267,5 @@ export function OrderManagementPage() {
     </ErpLayout>
   );
 }
+
+

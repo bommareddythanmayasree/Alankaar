@@ -1,163 +1,59 @@
-import { useMemo, useState, useEffect } from "react";
-import { FileText, X } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { FileText, CheckCircle2, Package, X } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
-import { WAREHOUSE_INVOICE_DATA } from "../../../shared/data/warehouse-mock-data";
+import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
 import {
-  getDemoOrder,
-  generateInvoice,
-  type DemoOrder,
+  getWorkflowOrders,
+  setWorkflowOrderInvoice,
+  nextDemoInvoiceNumber,
+  type WorkflowOrderLive,
+  type WorkflowLifecycleStatus,
 } from "../../../shared/lib/demo-store";
 
-const SIDEBAR_LABELS = [
-  "Dashboard",
-  "Stock Management",
-  "Stock Logs",
-  "Order Verification",
-  "Order Management",
-  "Invoice Generation",
-  "Dispatch Tracking",
-  "Notifications",
-  "Settings",
-] as const;
-
-type InvoiceRow = {
-  invoiceNumber: string;
-  orderId?: string;
-  branch: string;
-  gstPercent: number;
-  issuedDate: string;
-  items: { product: string; quantity: number; price: number }[];
-  paymentStatus?: "Pending" | "Completed";
-  totalAmount?: number;
-  isDemo?: boolean;
-  awaitingGeneration?: boolean; // approved but invoice not yet generated
-};
+function fmt(v: number) { return `₹${v.toLocaleString("en-IN")}`; }
 
 export function InvoiceGenerationPage() {
-  const [selectedInvoiceNo, setSelectedInvoiceNo] = useState<string | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [demoOrder, setDemoOrder] = useState<DemoOrder | null>(null);
+  const [deliveredOrders, setDeliveredOrders] = useState<WorkflowOrderLive[]>([]);
+  const [invoicedOrders, setInvoicedOrders] = useState<WorkflowOrderLive[]>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [previewOrder, setPreviewOrder] = useState<WorkflowOrderLive | null>(null);
 
-  function sync() {
-    setDemoOrder(getDemoOrder());
-  }
+  const loadOrders = useCallback(() => {
+    const all = getWorkflowOrders();
+    setDeliveredOrders(all.filter(o => o.status === "Delivered"));
+    setInvoicedOrders(all.filter(o =>
+      (["Invoice Generated", "Payment Pending", "Payment Completed", "Order Closed"] as WorkflowLifecycleStatus[])
+        .includes(o.status as WorkflowLifecycleStatus)
+    ));
+  }, []);
 
   useEffect(() => {
-    sync();
-    window.addEventListener("focus", sync);
-    return () => window.removeEventListener("focus", sync);
-  }, []);
+    loadOrders();
+    window.addEventListener("storage", loadOrders);
+    window.addEventListener("focus", loadOrders);
+    return () => {
+      window.removeEventListener("storage", loadOrders);
+      window.removeEventListener("focus", loadOrders);
+    };
+  }, [loadOrders]);
 
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
   }
 
-  // Build demo invoice row — either awaiting generation or already generated
-  const demoInvoiceRow = useMemo<InvoiceRow | null>(() => {
-    if (!demoOrder || demoOrder.status !== "Approved") return null;
-    const today = new Date().toISOString().split("T")[0];
-
-    // Use persisted approved qty; fall back to min(requested, available) for backwards compat
-    const approvedItems = demoOrder.items.map((i) => ({
-      product: i.name,
-      quantity: i.approved ?? Math.min(i.requested, i.available),
-      price: 0,
-    }));
-
-    // Use approvedAmount (based on approved qtys); fall back to original amount
-    const invoiceTotal = demoOrder.approvedAmount ?? demoOrder.amount;
-
-    if (!demoOrder.invoiceGenerated) {
-      return {
-        invoiceNumber: `PENDING-${demoOrder.id}`,
-        orderId: demoOrder.id,
-        branch: demoOrder.branch,
-        gstPercent: 5,
-        issuedDate: today,
-        items: approvedItems,
-        paymentStatus: "Pending",
-        totalAmount: invoiceTotal,
-        isDemo: true,
-        awaitingGeneration: true,
-      };
-    }
-    return {
-      invoiceNumber: demoOrder.invoiceNumber!,
-      orderId: demoOrder.id,
-      branch: demoOrder.branch,
-      gstPercent: 5,
-      issuedDate: today,
-      items: approvedItems,
-      paymentStatus: demoOrder.paymentStatus === "Paid" ? "Completed" : "Pending",
-      totalAmount: invoiceTotal,
-      isDemo: true,
-      awaitingGeneration: false,
-    };
-  }, [demoOrder]);
-
-  const allInvoices = useMemo<InvoiceRow[]>(() => {
-    const staticRows: InvoiceRow[] = WAREHOUSE_INVOICE_DATA.map((inv) => ({
-      invoiceNumber: inv.invoiceNumber,
-      branch: inv.branch,
-      gstPercent: inv.gstPercent,
-      issuedDate: inv.issuedDate,
-      items: inv.items,
-      paymentStatus: undefined,
-      isDemo: false,
-    }));
-    if (demoInvoiceRow) return [demoInvoiceRow, ...staticRows];
-    return staticRows;
-  }, [demoInvoiceRow]);
-
-  const effectiveNo = selectedInvoiceNo ?? allInvoices[0]?.invoiceNumber;
-  const selected = allInvoices.find((inv) => inv.invoiceNumber === effectiveNo) ?? allInvoices[0];
-
-  const subtotal = useMemo(
-    () => selected?.totalAmount ?? selected?.items.reduce((sum, i) => sum + i.quantity * i.price, 0) ?? 0,
-    [selected]
-  );
-  const gstAmount = selected?.totalAmount ? 0 : Math.round((subtotal * (selected?.gstPercent ?? 5)) / 100);
-  const totalAmount = selected?.totalAmount ?? subtotal + gstAmount;
-
-  const handleGenerateInvoice = () => {
-    if (!selected?.orderId || !selected.awaitingGeneration) return;
-    const invNo = generateInvoice(selected.orderId);
-    if (invNo) {
-      sync();
-      setSelectedInvoiceNo(invNo);
-      showToast(`Invoice ${invNo} Generated Successfully`);
-    }
-  };
-
-  const onDownloadPdf = () => {
-    if (!selected || selected.awaitingGeneration) return;
-    const rows = selected.items
-      .map((item, idx) => `${idx + 1}. ${item.product} | Qty: ${item.quantity} | Price: Rs.${item.price} | Total: Rs.${item.quantity * item.price}`)
-      .join("\n");
-    const text =
-      `ALANKAR ERP - INVOICE\n\n` +
-      `Invoice Number: ${selected.invoiceNumber}\n` +
-      (selected.orderId ? `Order ID: ${selected.orderId}\n` : "") +
-      `Branch: ${selected.branch}\n` +
-      `Issued Date: ${selected.issuedDate}\n` +
-      `Payment Status: ${selected.paymentStatus ?? "N/A"}\n\n` +
-      `Items:\n${rows}\n\n` +
-      `Total Amount: Rs.${totalAmount}\n`;
-    const blob = new Blob([text], { type: "application/pdf" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `${selected.invoiceNumber}.pdf`;
-    link.click();
-    URL.revokeObjectURL(link.href);
-  };
+  function handleGenerate(orderId: string) {
+    const invNo = nextDemoInvoiceNumber();
+    setWorkflowOrderInvoice(orderId, invNo);
+    showToast(`Invoice ${invNo} generated for ${orderId}`);
+    loadOrders();
+  }
 
   return (
     <ErpLayout
       title="Invoice Generation"
-      sidebarItems={buildSidebar(WAREHOUSE_NAV, [...SIDEBAR_LABELS], "Invoice Generation")}
+      sidebarItems={buildSidebar(WAREHOUSE_NAV, [...WAREHOUSE_SIDEBAR_LABELS], "Invoice Generation")}
     >
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg">
@@ -165,153 +61,130 @@ export function InvoiceGenerationPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-        {/* ── Left panel ── */}
-        <section className="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-4">
-          <h3 className="mb-3 text-lg font-semibold">Select Invoice</h3>
-          <select
-            value={effectiveNo ?? ""}
-            onChange={(e) => setSelectedInvoiceNo(e.target.value)}
-            className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]"
-          >
-            {allInvoices.map((inv) => (
-              <option key={inv.invoiceNumber} value={inv.invoiceNumber}>
-                {inv.awaitingGeneration ? `[Pending] ${inv.orderId}` : inv.invoiceNumber} — {inv.branch}
-              </option>
+      <div className="mb-5">
+        <h2 className="text-2xl font-semibold text-slate-800">Invoice Generation</h2>
+        <p className="mt-1 text-slate-500">Generate invoices only for delivered orders. Synced from Orders Workflow.</p>
+      </div>
+
+      <div className="mb-5 grid grid-cols-3 gap-4">
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="mb-2 inline-flex h-9 w-9 items-center justify-center rounded-full bg-amber-50 text-amber-600"><Package size={18} /></div>
+          <div className="text-2xl font-bold text-amber-700">{deliveredOrders.length}</div>
+          <div className="text-xs text-slate-500">Delivered — Awaiting Invoice</div>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="mb-2 inline-flex h-9 w-9 items-center justify-center rounded-full bg-violet-50 text-violet-600"><FileText size={18} /></div>
+          <div className="text-2xl font-bold text-violet-700">{invoicedOrders.length}</div>
+          <div className="text-xs text-slate-500">Invoices Generated</div>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="mb-2 inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><CheckCircle2 size={18} /></div>
+          <div className="text-2xl font-bold text-emerald-700">
+            {invoicedOrders.filter(o => o.status === "Payment Completed" || o.status === "Order Closed").length}
+          </div>
+          <div className="text-xs text-slate-500">Payment Completed</div>
+        </div>
+      </div>
+
+      {/* Delivered orders awaiting invoice */}
+      {deliveredOrders.length > 0 && (
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50">
+          <div className="flex items-center gap-2 border-b border-amber-200 px-5 py-3">
+            <Package className="h-4 w-4 text-amber-600" />
+            <span className="font-semibold text-amber-800">Delivered Orders — Awaiting Invoice</span>
+            <span className="ml-auto rounded-full bg-amber-600 px-2 py-0.5 text-xs font-bold text-white">{deliveredOrders.length}</span>
+          </div>
+          <div className="divide-y divide-amber-100">
+            {deliveredOrders.map(order => (
+              <div key={order.id} className="flex items-center justify-between px-5 py-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-bold text-[#0B2C66]">{order.id}</span>
+                    <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-semibold text-teal-700">Delivered</span>
+                  </div>
+                  <div className="mt-0.5 text-sm font-medium text-slate-700">{order.branch}</div>
+                  <div className="mt-0.5 text-xs text-slate-400">{order.date} · {order.items.length} items · {fmt(order.value)}</div>
+                </div>
+                <button onClick={() => handleGenerate(order.id)}
+                  className="flex items-center gap-2 rounded-lg bg-[#0B2C66] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0a2559] transition-colors">
+                  <FileText className="h-4 w-4" />
+                  Generate Invoice
+                </button>
+              </div>
             ))}
-          </select>
-
-          {selected && (
-            <div className="mt-4 rounded-lg border border-slate-200 bg-[#F8FAFD] p-3 text-sm space-y-1">
-              {selected.awaitingGeneration ? (
-                <p className="font-semibold text-amber-700">⏳ Invoice not yet generated</p>
-              ) : (
-                <p><span className="font-semibold">Invoice:</span> {selected.invoiceNumber}</p>
-              )}
-              {selected.orderId && (
-                <p><span className="font-semibold">Order ID:</span> {selected.orderId}</p>
-              )}
-              <p><span className="font-semibold">Branch:</span> {selected.branch}</p>
-              <p><span className="font-semibold">Date:</span> {selected.issuedDate}</p>
-              {selected.paymentStatus && !selected.awaitingGeneration && (
-                <p>
-                  <span className="font-semibold">Payment: </span>
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                    selected.paymentStatus === "Completed" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                  }`}>
-                    {selected.paymentStatus === "Completed" ? "Paid" : "Pending"}
-                  </span>
-                </p>
-              )}
-            </div>
-          )}
-
-          <div className="mt-5 space-y-2">
-            {selected?.awaitingGeneration ? (
-              <button
-                onClick={handleGenerateInvoice}
-                className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#0A3A92] text-sm font-semibold text-white hover:bg-[#083173]"
-              >
-                <FileText className="h-4 w-4" />
-                Generate Invoice
-              </button>
-            ) : (
-              <>
-                <button
-                  onClick={() => setPreviewOpen(true)}
-                  className="h-10 w-full rounded-md border border-[#0A3A92] bg-white text-sm font-semibold text-[#0A3A92] hover:bg-[#EEF4FF]"
-                >
-                  Preview Invoice
-                </button>
-                <button
-                  onClick={onDownloadPdf}
-                  className="h-10 w-full rounded-md bg-[#0A3A92] text-sm font-semibold text-white hover:bg-[#083173]"
-                >
-                  Download PDF
-                </button>
-              </>
-            )}
           </div>
-        </section>
+        </div>
+      )}
 
-        {/* ── Right panel: invoice details ── */}
-        <section className="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-8">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Invoice Details</h3>
-            {selected?.awaitingGeneration ? (
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
-                Awaiting Generation
-              </span>
-            ) : selected?.paymentStatus ? (
-              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                selected.paymentStatus === "Completed" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-              }`}>
-                {selected.paymentStatus === "Completed" ? "Paid" : "Payment Pending"}
-              </span>
-            ) : null}
+      {deliveredOrders.length === 0 && (
+        <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
+          {invoicedOrders.length > 0
+            ? "All delivered orders have been invoiced."
+            : "No delivered orders awaiting invoice. Invoice can only be generated after an order is delivered."}
+        </div>
+      )}
+
+      {/* Generated invoices */}
+      {invoicedOrders.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white">
+          <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
+            <FileText className="h-4 w-4 text-violet-600" />
+            <h3 className="font-semibold text-slate-800">Generated Invoices</h3>
           </div>
-
-          {selected?.awaitingGeneration && (
-            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              <p className="font-semibold">Order Approved — Invoice Pending</p>
-              <p className="mt-1 text-xs">Order <span className="font-semibold">{selected.orderId}</span> from <span className="font-semibold">{selected.branch}</span> has been approved. Click "Generate Invoice" to create the invoice.</p>
-            </div>
-          )}
-
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px] text-left text-sm">
-              <thead className="bg-[#F8FAFD] text-slate-500">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-3 py-3">Product</th>
-                  <th className="px-3 py-3">Quantity</th>
-                  <th className="px-3 py-3">Unit Price</th>
-                  <th className="px-3 py-3">Total</th>
+                  <th className="px-5 py-3">Invoice No.</th>
+                  <th className="px-5 py-3">Order ID</th>
+                  <th className="px-5 py-3">Branch</th>
+                  <th className="px-5 py-3">Date</th>
+                  <th className="px-5 py-3 text-right">Amount</th>
+                  <th className="px-5 py-3">Status</th>
+                  <th className="px-5 py-3"></th>
                 </tr>
               </thead>
-              <tbody>
-                {selected?.items.map((item) => (
-                  <tr key={item.product} className="border-t border-slate-100">
-                    <td className="px-3 py-3 font-medium">{item.product}</td>
-                    <td className="px-3 py-3">{item.quantity}</td>
-                    <td className="px-3 py-3">&#8377;{new Intl.NumberFormat("en-IN").format(item.price)}</td>
-                    <td className="px-3 py-3">&#8377;{new Intl.NumberFormat("en-IN").format(item.quantity * item.price)}</td>
+              <tbody className="divide-y divide-slate-100">
+                {invoicedOrders.map(order => (
+                  <tr key={order.id} className="hover:bg-slate-50">
+                    <td className="px-5 py-3 font-mono text-xs font-bold text-violet-700">{order.invoiceNumber ?? "—"}</td>
+                    <td className="px-5 py-3 font-mono text-xs text-[#0B2C66]">{order.id}</td>
+                    <td className="px-5 py-3 font-medium text-slate-800">{order.branch}</td>
+                    <td className="px-5 py-3 text-slate-500">{order.date}</td>
+                    <td className="px-5 py-3 text-right font-semibold text-slate-800">{fmt(order.value)}</td>
+                    <td className="px-5 py-3">
+                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                        order.status === "Payment Completed" || order.status === "Order Closed"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-amber-100 text-amber-700"
+                      }`}>
+                        {order.status}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3">
+                      <button onClick={() => setPreviewOrder(order)}
+                        className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                        Preview
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        </div>
+      )}
 
-          <div className="mt-4 ml-auto w-full max-w-[320px] space-y-2 rounded-lg border border-slate-200 bg-[#F8FAFD] p-3 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-600">Subtotal</span>
-              <span className="font-semibold">&#8377;{new Intl.NumberFormat("en-IN").format(subtotal)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-600">GST ({selected?.gstPercent ?? 5}%)</span>
-              <span className="font-semibold">&#8377;{new Intl.NumberFormat("en-IN").format(gstAmount)}</span>
-            </div>
-            <div className="h-px bg-slate-200" />
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-slate-700">Total Amount</span>
-              <span className="text-lg font-bold text-[#0A3A92]">
-                &#8377;{new Intl.NumberFormat("en-IN").format(totalAmount)}
-              </span>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      {/* ── Preview modal ── */}
-      {previewOpen && selected && !selected.awaitingGeneration && (
+      {/* Preview modal */}
+      {previewOrder && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-[820px] rounded-xl border border-slate-200 bg-white p-5 max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-[720px] rounded-xl border border-slate-200 bg-white p-5 max-h-[90vh] overflow-y-auto">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">Invoice Preview</h3>
-              <button onClick={() => setPreviewOpen(false)} className="rounded-md border border-slate-200 p-1.5 hover:bg-slate-50">
+              <button onClick={() => setPreviewOrder(null)} className="rounded-md border border-slate-200 p-1.5 hover:bg-slate-50">
                 <X className="h-4 w-4" />
               </button>
             </div>
-
             <div className="rounded-lg border border-slate-200 p-4">
               <div className="mb-4 flex items-start justify-between">
                 <div>
@@ -319,49 +192,42 @@ export function InvoiceGenerationPage() {
                   <p className="text-sm text-slate-600">Warehouse Invoice</p>
                 </div>
                 <div className="text-right text-sm space-y-0.5">
-                  <p><span className="font-semibold">Invoice:</span> {selected.invoiceNumber}</p>
-                  {selected.orderId && <p><span className="font-semibold">Order ID:</span> {selected.orderId}</p>}
-                  <p><span className="font-semibold">Branch:</span> {selected.branch}</p>
-                  <p><span className="font-semibold">Date:</span> {selected.issuedDate}</p>
+                  <p><span className="font-semibold">Invoice:</span> {previewOrder.invoiceNumber}</p>
+                  <p><span className="font-semibold">Order ID:</span> {previewOrder.id}</p>
+                  <p><span className="font-semibold">Branch:</span> {previewOrder.branch}</p>
+                  <p><span className="font-semibold">Date:</span> {previewOrder.date}</p>
                 </div>
               </div>
               <table className="w-full text-left text-sm">
-                <thead className="bg-[#F8FAFD] text-slate-500">
+                <thead className="bg-slate-50 text-slate-500">
                   <tr>
                     <th className="px-2 py-2">Product</th>
-                    <th className="px-2 py-2">Quantity</th>
-                    <th className="px-2 py-2">Unit Price</th>
-                    <th className="px-2 py-2">Total</th>
+                    <th className="px-2 py-2">Ordered</th>
+                    <th className="px-2 py-2">Approved</th>
+                    <th className="px-2 py-2">Unit</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {selected.items.map((item) => (
+                  {previewOrder.items.map(item => (
                     <tr key={item.product} className="border-t border-slate-100">
                       <td className="px-2 py-2">{item.product}</td>
-                      <td className="px-2 py-2">{item.quantity}</td>
-                      <td className="px-2 py-2">&#8377;{item.price}</td>
-                      <td className="px-2 py-2">&#8377;{item.quantity * item.price}</td>
+                      <td className="px-2 py-2">{item.orderedQty}</td>
+                      <td className="px-2 py-2 font-semibold text-emerald-700">{item.approvedQty}</td>
+                      <td className="px-2 py-2">{item.unit}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <div className="mt-4 ml-auto max-w-[260px] text-sm space-y-1">
-                <div className="flex justify-between border-t border-slate-200 pt-1 font-bold text-[#0A3A92]">
+              <div className="mt-4 ml-auto max-w-[240px] text-sm">
+                <div className="flex justify-between border-t border-slate-200 pt-2 font-bold text-[#0A3A92]">
                   <span>Total Amount</span>
-                  <span>&#8377;{new Intl.NumberFormat("en-IN").format(totalAmount)}</span>
+                  <span>{fmt(previewOrder.value)}</span>
                 </div>
               </div>
             </div>
-
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setPreviewOpen(false)} className="h-10 rounded-md border border-slate-200 px-4 text-sm font-semibold hover:bg-slate-50">
+            <div className="mt-4 flex justify-end">
+              <button onClick={() => setPreviewOrder(null)} className="h-10 rounded-md border border-slate-200 px-4 text-sm font-semibold hover:bg-slate-50">
                 Close
-              </button>
-              <button
-                onClick={() => { setPreviewOpen(false); onDownloadPdf(); }}
-                className="h-10 rounded-md border border-[#0A3A92] px-4 text-sm font-semibold text-[#0A3A92] hover:bg-[#EEF4FF]"
-              >
-                Download PDF
               </button>
             </div>
           </div>

@@ -219,6 +219,8 @@ export function ProductAnalyticsPage() {
 }
 
 function formatInr(value: number) {
-  return `₹${new Intl.NumberFormat("en-IN").format(value)}`;
+  return `?${new Intl.NumberFormat("en-IN").format(value)}`;
 }
+
+
 

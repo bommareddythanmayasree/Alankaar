@@ -34,6 +34,11 @@ export function ErpLayout({
     "Product Approval Requests": "/admin/product-approval-requests",
     Notifications: "/admin/notifications",
     Settings: "/admin/settings",
+    "Business Intelligence": "/admin/business-intelligence",
+    "Demand vs Delivery": "/admin/demand-vs-delivery",
+    "Product Performance": "/admin/product-performance",
+    "Shortage Analytics": "/admin/shortage-analytics",
+    "Management Insights": "/admin/management-insights",
   };
 
   const warehouseRoutes: Record<string, string> = {
@@ -49,6 +54,14 @@ export function ErpLayout({
     "Order Management": "/warehouse/order-management",
     "Invoice Generation": "/warehouse/invoice-generation",
     "Dispatch Tracking": "/warehouse/dispatch-tracking",
+    "Production Planning": "/warehouse/production-planning",
+    "Multi-Stage Dispatch": "/warehouse/multi-stage-dispatch",
+    "Delivery Tracking": "/warehouse/delivery-tracking",
+    "Order Closure": "/warehouse/order-closure",
+    "End of Day Closure": "/warehouse/eod-closure",
+    "Collections": "/warehouse/collections",
+    "Advance Orders": "/warehouse/advance-orders",
+    "Orders Workflow": "/warehouse/orders-workflow",
   };
 
   const branchRoutes: Record<string, string> = {
@@ -65,6 +78,10 @@ export function ErpLayout({
     "Order Tracking": "/branch/order-tracking",
     Notifications: "/branch/notifications",
     Settings: "/branch/settings",
+    "Payment Status": "/branch/payment-status",
+    "Payment History": "/branch/payment-history",
+    "Advance Orders": "/branch/advance-orders",
+    "My Orders": "/branch/my-orders",
   };
 
   const resolveRoute = (item: SideItem) => {
@@ -238,3 +255,5 @@ export function ErpLayout({
     </div>
   );
 }
+
+

@@ -9,6 +9,7 @@
 const KEYS = {
   ORDER: "demoWarehouseOrder",
   TRACKING_STATUS: "demoOrderTrackingStatus",
+  SUBMITTED_ORDERS: "demoSubmittedOrders",
   STOCK_OVERRIDES: "demoStockOverrides",        // Record<productId, currentStock>
   WAREHOUSE_NOTIFS: "demoWarehouseNotifs",
   BRANCH_NOTIFS: "demoBranchNotifs",
@@ -312,7 +313,7 @@ export function savePendingProduct(product: Omit<DemoPendingProduct, "id" | "sta
   pushAdminNotif({
     type: "product_pending",
     title: "New Product Pending Approval",
-    message: `Warehouse added "${product.productName}" (${product.category}). Price: ₹${product.price}. Awaiting admin approval.`,
+    message: `Warehouse added "${product.productName}" (${product.category}). Price: ?${product.price}. Awaiting admin approval.`,
   });
   return id;
 }
@@ -649,3 +650,289 @@ export function advanceDispatch(orderId: string, stage: "Packed" | "Dispatched" 
 export function resetDemoData() {
   Object.values(KEYS).forEach((key) => localStorage.removeItem(key));
 }
+
+// ── Demo Branch Identity ───────────────────────────────────────────────────────
+
+export const DEMO_BRANCH_KEY = "demo_branch_id";
+
+import { DEMO_BRANCH_ACCOUNTS } from "../data/demo-mock-data";
+
+/**
+ * Returns the currently selected demo branch name (e.g. "Gandhi Nagar").
+ * Falls back to "Gandhi Nagar" if nothing is stored.
+ */
+export function getCurrentDemoBranchName(): string {
+  const id = localStorage.getItem(DEMO_BRANCH_KEY);
+  if (!id) return "Gandhi Nagar";
+  return DEMO_BRANCH_ACCOUNTS.find(b => b.id === id)?.name ?? "Gandhi Nagar";
+}
+
+// ── Submitted Orders (Place Order → My Orders flow) ───────────────────────────
+
+export type SubmittedOrderItem = {
+  name: string;
+  qty: number;
+  priority: "Normal" | "Urgent";
+};
+
+export type SubmittedOrder = {
+  orderId: string;
+  branch: string;
+  timestamp: string;
+  dispatchSlot: "Morning Dispatch" | "Evening Dispatch";
+  status: "Warehouse Review";
+  items: SubmittedOrderItem[];
+};
+
+export function getSubmittedOrders(): SubmittedOrder[] {
+  return read<SubmittedOrder[]>(KEYS.SUBMITTED_ORDERS, []);
+}
+
+export function saveSubmittedOrder(order: SubmittedOrder) {
+  const existing = getSubmittedOrders().filter(o => o.orderId !== order.orderId);
+  write(KEYS.SUBMITTED_ORDERS, [order, ...existing]);
+}
+
+// ── Warehouse Orders — shared localStorage bridge (Branch ↔ Warehouse) ────────
+
+export type WarehouseOrderStatus =
+  | "Under Review"
+  | "Approved"
+  | "Production Started"
+  | "Ready For Dispatch"
+  | "Morning Dispatch"
+  | "Evening Dispatch"
+  | "Delivered";
+
+export const WAREHOUSE_STATUS_SEQUENCE: WarehouseOrderStatus[] = [
+  "Under Review",
+  "Approved",
+  "Production Started",
+  "Ready For Dispatch",
+  "Morning Dispatch",
+  "Evening Dispatch",
+  "Delivered",
+];
+
+export type WarehouseOrderItem = {
+  name: string;
+  qty: number;
+  priority: "Normal" | "Urgent";
+};
+
+export type WarehouseOrder = {
+  orderId: string;
+  branch: string;
+  products: WarehouseOrderItem[];
+  quantity: number;          // total units
+  priority: "Normal" | "Urgent";
+  dispatchSlot: "Morning Dispatch" | "Evening Dispatch";
+  status: WarehouseOrderStatus;
+  createdAt: string;         // ISO timestamp for sorting
+  amount: number;            // calculated total (qty × selling price)
+};
+
+const WAREHOUSE_ORDERS_KEY = "warehouseOrders";
+
+// ── Product Price Lookup ──────────────────────────────────────────────────────
+
+import { WAREHOUSE_STOCK_ITEMS } from "../data/warehouse-mock-data";
+
+/**
+ * Look up the selling price for a product by name using the canonical catalog.
+ * Returns 0 if not found.
+ */
+export function getProductSellingPrice(productName: string): number {
+  const match = WAREHOUSE_STOCK_ITEMS.find(
+    (p) => p.productName.toLowerCase() === productName.toLowerCase()
+  );
+  return match?.sellingPrice ?? 0;
+}
+
+/**
+ * Calculate the total amount for a list of {name, qty} items
+ * using the warehouse product catalog's selling prices.
+ */
+export function calcOrderAmount(items: Array<{ name: string; qty: number }>): number {
+  return items.reduce((sum, item) => sum + item.qty * getProductSellingPrice(item.name), 0);
+}
+
+export function getWarehouseOrders(): WarehouseOrder[] {
+  return read<WarehouseOrder[]>(WAREHOUSE_ORDERS_KEY, []);
+}
+
+export function saveWarehouseOrder(order: WarehouseOrder) {
+  const existing = getWarehouseOrders().filter(o => o.orderId !== order.orderId);
+  // newest first
+  write(WAREHOUSE_ORDERS_KEY, [order, ...existing]);
+}
+
+export function approveWarehouseOrder(orderId: string) {
+  const orders = getWarehouseOrders();
+  const updated = orders.map(o =>
+    o.orderId === orderId ? { ...o, status: "Approved" as WarehouseOrderStatus } : o
+  );
+  write(WAREHOUSE_ORDERS_KEY, updated);
+}
+
+/** Advance a warehouse order to any lifecycle status */
+export function updateWarehouseOrderStatus(orderId: string, status: WarehouseOrderStatus) {
+  const orders = getWarehouseOrders();
+  const updated = orders.map(o =>
+    o.orderId === orderId ? { ...o, status } : o
+  );
+  write(WAREHOUSE_ORDERS_KEY, updated);
+}
+
+// ── Workflow Orders — full lifecycle synchronized store ───────────────────────
+// This is the master store for the complete Order Lifecycle.
+// All pages (Orders Workflow, Production Planning, Dispatch Tracking,
+// Delivery Tracking, Invoice Generation, Collections, Order Closure,
+// Branch My Orders, Branch Order Tracking) read/write from this key.
+
+export type WorkflowLifecycleStatus =
+  | "Order Placed"
+  | "Under Review"
+  | "Approved"
+  | "Added To Production"
+  | "Production Started"
+  | "Production Completed"
+  | "Ready For Dispatch"
+  | "Morning Dispatch"
+  | "Evening Dispatch"
+  | "In Transit"
+  | "Delivered"
+  | "Invoice Generated"
+  | "Payment Pending"
+  | "Payment Completed"
+  | "Order Closed";
+
+export const WORKFLOW_LIFECYCLE_SEQUENCE: WorkflowLifecycleStatus[] = [
+  "Order Placed",
+  "Under Review",
+  "Approved",
+  "Added To Production",
+  "Production Started",
+  "Production Completed",
+  "Ready For Dispatch",
+  "Morning Dispatch",
+  "Evening Dispatch",
+  "In Transit",
+  "Delivered",
+  "Invoice Generated",
+  "Payment Pending",
+  "Payment Completed",
+  "Order Closed",
+];
+
+export type WorkflowOrderItemLive = {
+  product: string;
+  orderedQty: number;
+  approvedQty: number;
+  rejectedQty: number;
+  unit: string;
+};
+
+export type WorkflowOrderLive = {
+  id: string;
+  branch: string;
+  date: string;
+  time: string;
+  priority: "Normal" | "Urgent";
+  value: number;
+  status: WorkflowLifecycleStatus;
+  items: WorkflowOrderItemLive[];
+  invoiceNumber?: string;
+};
+
+const WORKFLOW_ORDERS_KEY = "workflowOrders";
+
+/** Dispatch a storage event so all same-tab listeners also react */
+function broadcastChange(key: string) {
+  try {
+    window.dispatchEvent(new StorageEvent("storage", { key }));
+  } catch { /* SSR or test env */ }
+}
+
+export function getWorkflowOrders(): WorkflowOrderLive[] {
+  return read<WorkflowOrderLive[]>(WORKFLOW_ORDERS_KEY, []);
+}
+
+/**
+ * Seed workflow orders from static mock data if localStorage is empty.
+ * Call once at app startup (e.g. in App.tsx or router).
+ */
+export function initWorkflowOrders(staticOrders: WorkflowOrderLive[]) {
+  const existing = getWorkflowOrders();
+  if (existing.length === 0) {
+    write(WORKFLOW_ORDERS_KEY, staticOrders);
+  }
+}
+
+export function saveWorkflowOrder(order: WorkflowOrderLive) {
+  const existing = getWorkflowOrders().filter(o => o.id !== order.id);
+  write(WORKFLOW_ORDERS_KEY, [order, ...existing]);
+  broadcastChange(WORKFLOW_ORDERS_KEY);
+}
+
+/** Update a single workflow order's status and notify all pages.
+ *  If the order doesn't exist in workflowOrders yet, optionally seed it first. */
+export function updateWorkflowOrderStatus(
+  orderId: string,
+  status: WorkflowLifecycleStatus,
+  seedData?: Omit<WorkflowOrderLive, "id" | "status">
+) {
+  const orders = getWorkflowOrders();
+  const exists = orders.some(o => o.id === orderId);
+  let updated: WorkflowOrderLive[];
+
+  if (!exists && seedData) {
+    // Insert new entry at front
+    const newOrder: WorkflowOrderLive = { id: orderId, status, ...seedData };
+    updated = [newOrder, ...orders];
+  } else {
+    updated = orders.map(o => o.id === orderId ? { ...o, status } : o);
+  }
+
+  write(WORKFLOW_ORDERS_KEY, updated);
+  broadcastChange(WORKFLOW_ORDERS_KEY);
+  // Also push branch notification for key transitions
+  const order = updated.find(o => o.id === orderId);
+  if (order) {
+    _notifyBranchForStatus(order, status);
+  }
+}
+
+/** Assign invoice number to a workflow order */
+export function setWorkflowOrderInvoice(orderId: string, invoiceNumber: string) {
+  const orders = getWorkflowOrders();
+  const updated = orders.map(o =>
+    o.id === orderId ? { ...o, invoiceNumber, status: "Invoice Generated" as WorkflowLifecycleStatus } : o
+  );
+  write(WORKFLOW_ORDERS_KEY, updated);
+  broadcastChange(WORKFLOW_ORDERS_KEY);
+}
+
+function _notifyBranchForStatus(order: WorkflowOrderLive, status: WorkflowLifecycleStatus) {
+  const map: Partial<Record<WorkflowLifecycleStatus, { title: string; msg: string }>> = {
+    "Approved":            { title: "Order Approved", msg: `Your order ${order.id} has been approved by warehouse.` },
+    "Production Started":  { title: "Production Started", msg: `Your order ${order.id} is now in production.` },
+    "Ready For Dispatch":  { title: "Ready For Dispatch", msg: `Your order ${order.id} is ready for dispatch.` },
+    "Morning Dispatch":    { title: "Out For Delivery", msg: `Your order ${order.id} has been dispatched (Morning).` },
+    "Evening Dispatch":    { title: "Out For Delivery", msg: `Your order ${order.id} has been dispatched (Evening).` },
+    "In Transit":          { title: "Order In Transit", msg: `Your order ${order.id} is on its way to ${order.branch}.` },
+    "Delivered":           { title: "Order Delivered", msg: `Your order ${order.id} has been delivered.` },
+    "Invoice Generated":   { title: "Invoice Generated", msg: `Invoice has been generated for order ${order.id}.` },
+    "Payment Pending":     { title: "Payment Pending", msg: `Payment is pending for order ${order.id}.` },
+    "Payment Completed":   { title: "Payment Completed", msg: `Payment completed for order ${order.id}.` },
+    "Order Closed":        { title: "Order Closed", msg: `Order ${order.id} has been closed.` },
+  };
+  const n = map[status];
+  if (n) {
+    const all = read<DemoNotif[]>(KEYS.BRANCH_NOTIFS, []);
+    all.unshift({ id: `bn-${Date.now()}`, type: "order_approved", title: n.title, message: n.msg, timestamp: nowStr(), read: false });
+    write(KEYS.BRANCH_NOTIFS, all);
+  }
+}
+
+

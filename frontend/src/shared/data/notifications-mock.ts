@@ -97,3 +97,5 @@ export const BRANCH_NOTIFICATIONS: AppNotification[] = [
     read: true,
   },
 ];
+
+

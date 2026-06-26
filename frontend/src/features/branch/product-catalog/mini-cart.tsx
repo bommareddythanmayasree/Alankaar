@@ -192,3 +192,5 @@ export function MiniCartFAB({ open, onToggle }: { open: boolean; onToggle: () =>
     </>
   );
 }
+
+

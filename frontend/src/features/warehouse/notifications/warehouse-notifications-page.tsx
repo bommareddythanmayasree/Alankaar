@@ -5,18 +5,7 @@ import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { WAREHOUSE_NOTIFICATIONS } from "../../../shared/data/notifications-mock";
 import { getWarehouseNotifs, type DemoNotif } from "../../../shared/lib/demo-store";
 import type { AppNotification } from "../../../shared/data/notifications-mock";
-
-const SIDEBAR_LABELS = [
-  "Dashboard",
-  "Stock Management",
-  "Stock Logs",
-  "Order Verification",
-  "Order Management",
-  "Invoice Generation",
-  "Dispatch Tracking",
-  "Notifications",
-  "Settings",
-] as const;
+import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
 
 function demoNotifToApp(n: DemoNotif): AppNotification {
   return {
@@ -46,7 +35,7 @@ export function WarehouseNotificationsPage() {
   return (
     <ErpLayout
       title="Notifications"
-      sidebarItems={buildSidebar(WAREHOUSE_NAV, [...SIDEBAR_LABELS], "Notifications")}
+      sidebarItems={buildSidebar(WAREHOUSE_NAV, [...WAREHOUSE_SIDEBAR_LABELS], "Notifications")}
     >
       <p className="mb-5 text-slate-500">Warehouse alerts for orders, stock, and dispatch</p>
       <div className="max-w-3xl">
@@ -55,3 +44,5 @@ export function WarehouseNotificationsPage() {
     </ErpLayout>
   );
 }
+
+
