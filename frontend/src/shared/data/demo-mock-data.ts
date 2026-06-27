@@ -205,16 +205,16 @@ export const DEMO_PAYMENT_HISTORY = [
 
 // ── REQ 11 & 12 & 13 & 14 & 15: Admin Business Intelligence ──────────────────
 export const DEMO_BI_SUMMARY = {
-  totalDemand: "?2,84,500",
-  totalDelivered: "?2,59,400",
-  totalCancelled: "?25,100",
-  totalRevenue: "?2,59,400",
-  totalCollections: "?1,94,550",
-  totalOutstanding: "?64,850",
-  requestedValue: "?2,84,500",
-  deliveredValue: "?2,59,400",
+  totalDemand: "₹2,84,500",
+  totalDelivered: "₹2,59,400",
+  totalCancelled: "₹25,100",
+  totalRevenue: "₹2,59,400",
+  totalCollections: "₹1,94,550",
+  totalOutstanding: "₹64,850",
+  requestedValue: "₹2,84,500",
+  deliveredValue: "₹2,59,400",
   fulfillmentPct: "91.2%",
-  cancelledValue: "?25,100",
+  cancelledValue: "₹25,100",
 };
 
 export const DEMO_DEMAND_TREND = [
@@ -268,7 +268,7 @@ export const DEMO_SHORTAGE_ANALYTICS = [
 // REQ 16 – AI Insights
 export const DEMO_AI_INSIGHTS = [
   { id: 1, type: "trend",   severity: "high",   title: "Kalakand Demand Surge",           body: "Kalakand demand has increased by 25% over the last 7 days across Gandhi Nagar and Gayatri Nagar branches. Consider increasing production by 5 Kg daily.", action: "Increase Production" },
-  { id: 2, type: "warning", severity: "high",   title: "Outstanding Collections Rising",  body: "Outstanding payment collections have grown by 18% this week. ?64,850 pending from 3 branches. Gandhi Nagar and Gunadala are the highest contributors.", action: "View Collections" },
+  { id: 2, type: "warning", severity: "high",   title: "Outstanding Collections Rising",  body: "Outstanding payment collections have grown by 18% this week. ₹64,850 pending from 3 branches. Gandhi Nagar and Gunadala are the highest contributors.", action: "View Collections" },
   { id: 3, type: "alert",   severity: "medium", title: "Fulfillment Rate Below 85%",      body: "Gannavaram branch fulfillment rate dropped to 83% today due to Veg Puff stock shortage. Review production planning for snack category.", action: "Review Planning" },
   { id: 4, type: "insight", severity: "low",    title: "Weekend Demand Spike Predicted",  body: "Based on historical patterns, weekend demand is expected to increase by 35%. Pre-plan dispatch for Saturday and Sunday batches.", action: "Plan Dispatch" },
   { id: 5, type: "trend",   severity: "low",    title: "Kaju Katli Festival Opportunity", body: "Upcoming festival period shows 40% higher Kaju Katli orders historically. Advance orders for this product can improve fulfillment significantly.", action: "View Advance Orders" },
@@ -310,19 +310,19 @@ export const DEMO_URGENT_ORDERS = [
 export const DEMO_BRANCH_ACCOUNTS = [
   {
     id: "BR-1", name: "Gandhi Nagar", manager: "Ravi Kumar",   email: "gandhinagar@alankar.com",  password: "demo1234",
-    stats: { orders: 14, deliveredValue: "?38,450", outstanding: "?12,200", notifications: 3 },
+    stats: { orders: 14, deliveredValue: "₹38,450", outstanding: "₹12,200", notifications: 3 },
   },
   {
     id: "BR-2", name: "Gayatri Nagar", manager: "Prasad Rao", email: "gayatrinagar@alankar.com", password: "demo1234",
-    stats: { orders: 11, deliveredValue: "?28,100", outstanding: "?0",      notifications: 1 },
+    stats: { orders: 11, deliveredValue: "₹28,100", outstanding: "₹0",      notifications: 1 },
   },
   {
     id: "BR-3", name: "Ayyappa Nagar", manager: "Venkat Reddy", email: "ayyappanagar@alankar.com", password: "demo1234",
-    stats: { orders: 16, deliveredValue: "?45,200", outstanding: "?8,500",  notifications: 5 },
+    stats: { orders: 16, deliveredValue: "₹45,200", outstanding: "₹8,500",  notifications: 5 },
   },
   {
     id: "BR-4", name: "Gannavaram",  manager: "Kiran Varma",  email: "gannavaram@alankar.com",   password: "demo1234",
-    stats: { orders: 9,  deliveredValue: "?22,800", outstanding: "?4,150",  notifications: 2 },
+    stats: { orders: 9,  deliveredValue: "₹22,800", outstanding: "₹4,150",  notifications: 2 },
   },
 ] as const;
 

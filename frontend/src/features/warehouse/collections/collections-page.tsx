@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Banknote, CreditCard, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Banknote, AlertCircle, CheckCircle2, DollarSign, X, FileText, Package } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
@@ -10,20 +10,143 @@ import {
   type WorkflowLifecycleStatus,
 } from "../../../shared/lib/demo-store";
 
-const COLLECTION_STATUSES: WorkflowLifecycleStatus[] = ["Invoice Generated", "Payment Pending", "Payment Completed"];
+// All statuses that should appear in Collections
+const COLLECTION_STATUSES: WorkflowLifecycleStatus[] = [
+  "Invoice Generated",
+  "Payment Pending",
+  "Payment Completed",
+  "Order Closed",
+];
 
-function statusBadge(status: WorkflowLifecycleStatus) {
-  if (status === "Payment Completed") return "bg-emerald-100 text-emerald-700";
-  if (status === "Payment Pending")   return "bg-amber-100 text-amber-700";
-  return "bg-violet-100 text-violet-700";
-}
+type FilterTab = "All" | "Payment Pending" | "Payment Completed" | "Order Closed";
 
 function fmt(v: number) { return `₹${v.toLocaleString("en-IN")}`; }
 
+function paymentStatusBadge(status: WorkflowLifecycleStatus) {
+  if (status === "Order Closed")        return "bg-slate-100 text-slate-600";
+  if (status === "Payment Completed")   return "bg-emerald-100 text-emerald-700";
+  if (status === "Payment Pending")     return "bg-amber-100 text-amber-700";
+  return "bg-violet-100 text-violet-700"; // Invoice Generated
+}
+
+function orderStatusBadge(status: WorkflowLifecycleStatus) {
+  if (status === "Order Closed")      return "bg-slate-100 text-slate-600";
+  if (status === "Payment Completed") return "bg-emerald-100 text-emerald-700";
+  return "bg-blue-100 text-blue-700"; // Delivered
+}
+
+function derivePaymentStatus(status: WorkflowLifecycleStatus): string {
+  if (status === "Order Closed" || status === "Payment Completed") return "Payment Completed";
+  if (status === "Payment Pending") return "Payment Pending";
+  return "Invoice Generated";
+}
+
+function deriveOrderStatus(status: WorkflowLifecycleStatus): string {
+  if (status === "Order Closed") return "Order Closed";
+  return "Delivered";
+}
+
+// ── Invoice Preview Modal ────────────────────────────────────────────────────
+
+function InvoiceModal({
+  order,
+  onClose,
+}: {
+  order: WorkflowOrderLive;
+  onClose: () => void;
+}) {
+  const subtotal = order.value;
+  const gst = Math.round(subtotal * 0.05);
+  const total = subtotal + gst;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="mx-4 w-full max-w-lg rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <div className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-violet-600" />
+            <span className="font-semibold text-slate-800">Invoice — {order.invoiceNumber ?? "—"}</span>
+          </div>
+          <button onClick={onClose} className="rounded-full p-1 hover:bg-slate-100 transition-colors">
+            <X className="h-4 w-4 text-slate-500" />
+          </button>
+        </div>
+
+        <div className="px-6 py-4">
+          <div className="mb-4 grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <div className="text-xs text-slate-400 uppercase tracking-wide">Order ID</div>
+              <div className="font-mono font-semibold text-[#0B2C66]">{order.id}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-400 uppercase tracking-wide">Branch</div>
+              <div className="font-medium text-slate-800">{order.branch}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-400 uppercase tracking-wide">Delivery Date</div>
+              <div className="text-slate-700">{order.deliveredDate ?? order.date}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-400 uppercase tracking-wide">Status</div>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${paymentStatusBadge(order.status as WorkflowLifecycleStatus)}`}>
+                {derivePaymentStatus(order.status as WorkflowLifecycleStatus)}
+              </span>
+            </div>
+          </div>
+
+          <table className="mb-4 w-full text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-3 py-2 text-left">Product</th>
+                <th className="px-3 py-2 text-right">Qty</th>
+                <th className="px-3 py-2 text-right">Unit</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {order.items.map((item, i) => (
+                <tr key={i}>
+                  <td className="px-3 py-2 text-slate-700">{item.product}</td>
+                  <td className="px-3 py-2 text-right font-medium">{item.approvedQty || item.orderedQty}</td>
+                  <td className="px-3 py-2 text-right text-slate-500">{item.unit}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="space-y-1.5 border-t border-slate-100 pt-3 text-sm">
+            <div className="flex justify-between text-slate-600">
+              <span>Subtotal</span>
+              <span>{fmt(subtotal)}</span>
+            </div>
+            <div className="flex justify-between text-slate-600">
+              <span>GST (5%)</span>
+              <span>{fmt(gst)}</span>
+            </div>
+            <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-semibold text-slate-800">
+              <span>Total</span>
+              <span>{fmt(total)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-slate-100 px-6 py-3">
+          <button onClick={onClose}
+            className="w-full rounded-lg bg-slate-100 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200 transition-colors">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Page ────────────────────────────────────────────────────────────────
+
 export function CollectionsPage() {
   const [orders, setOrders] = useState<WorkflowOrderLive[]>([]);
-  const [filter, setFilter] = useState<string>("All");
+  const [filter, setFilter] = useState<FilterTab>("All");
   const [toast, setToast] = useState<string | null>(null);
+  const [previewOrder, setPreviewOrder] = useState<WorkflowOrderLive | null>(null);
 
   const loadOrders = useCallback(() => {
     const filtered = getWorkflowOrders().filter(o =>
@@ -44,22 +167,41 @@ export function CollectionsPage() {
 
   function showToast(msg: string) {
     setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), 3500);
   }
 
   function handleMarkPaid(orderId: string) {
+    // Sets Payment Completed — demo-store auto-advances to Order Closed
     updateWorkflowOrderStatus(orderId, "Payment Completed");
-    showToast(`Payment completed for ${orderId}`);
+    showToast(`Payment completed — Order ${orderId} closed automatically`);
     loadOrders();
   }
 
-  const filters = ["All", "Invoice Generated", "Payment Pending", "Payment Completed"];
-  const rows = filter === "All" ? orders : orders.filter(o => o.status === filter);
+  // ── Metrics ──────────────────────────────────────────────────────────────
+  const outstanding = orders
+    .filter(o => o.status === "Invoice Generated" || o.status === "Payment Pending")
+    .reduce((s, o) => s + o.value, 0);
 
-  const totalValue    = orders.reduce((s, o) => s + o.value, 0);
-  const totalPaid     = orders.filter(o => o.status === "Payment Completed").reduce((s, o) => s + o.value, 0);
-  const totalPending  = orders.filter(o => o.status !== "Payment Completed").reduce((s, o) => s + o.value, 0);
-  const collectionPct = totalValue > 0 ? Math.round((totalPaid / totalValue) * 100) : 0;
+  const collected = orders
+    .filter(o => o.status === "Payment Completed" || o.status === "Order Closed")
+    .reduce((s, o) => s + o.value, 0);
+
+  const pendingPaymentsCount = orders.filter(o =>
+    o.status === "Invoice Generated" || o.status === "Payment Pending"
+  ).length;
+
+  const closedOrdersCount = orders.filter(o => o.status === "Order Closed").length;
+
+  // ── Filter logic ─────────────────────────────────────────────────────────
+  const TABS: FilterTab[] = ["All", "Payment Pending", "Payment Completed", "Order Closed"];
+
+  const rows = filter === "All"
+    ? orders
+    : filter === "Payment Pending"
+      ? orders.filter(o => o.status === "Invoice Generated" || o.status === "Payment Pending")
+      : filter === "Payment Completed"
+        ? orders.filter(o => o.status === "Payment Completed")
+        : orders.filter(o => o.status === "Order Closed");
 
   return (
     <ErpLayout sidebarItems={buildSidebar(WAREHOUSE_NAV, [...WAREHOUSE_SIDEBAR_LABELS], "Collections")}>
@@ -69,17 +211,48 @@ export function CollectionsPage() {
         </div>
       )}
 
+      {previewOrder && (
+        <InvoiceModal order={previewOrder} onClose={() => setPreviewOrder(null)} />
+      )}
+
       <div className="mb-5">
-        <h2 className="text-2xl font-semibold text-slate-800">Collections Dashboard</h2>
-        <p className="mt-1 text-slate-500">Invoice Generated and Payment Pending orders — synced from Orders Workflow.</p>
+        <h2 className="text-2xl font-semibold text-slate-800">Collections</h2>
+        <p className="mt-1 text-slate-500">
+          Mark payments received — orders close automatically on payment completion.
+        </p>
       </div>
 
+      {/* ── Dashboard Cards ──────────────────────────────────────────────── */}
       <div className="mb-5 grid grid-cols-2 gap-4 md:grid-cols-4">
         {[
-          { label: "Total Invoiced",   value: fmt(totalValue),        bg: "bg-[#E9EDFF]", color: "text-indigo-600",  Icon: Banknote },
-          { label: "Collected",        value: fmt(totalPaid),         bg: "bg-[#E2FFE6]", color: "text-emerald-600", Icon: CheckCircle2 },
-          { label: "Outstanding",      value: fmt(totalPending),      bg: "bg-[#FFE6D2]", color: "text-orange-600",  Icon: AlertCircle },
-          { label: "Collection %",     value: `${collectionPct}%`,    bg: "bg-[#FFF3CB]", color: "text-amber-600",   Icon: CreditCard },
+          {
+            label: "Outstanding Amount",
+            value: fmt(outstanding),
+            bg: "bg-[#FFE6D2]",
+            color: "text-orange-600",
+            Icon: AlertCircle,
+          },
+          {
+            label: "Collected Amount",
+            value: fmt(collected),
+            bg: "bg-[#E2FFE6]",
+            color: "text-emerald-600",
+            Icon: CheckCircle2,
+          },
+          {
+            label: "Pending Payments",
+            value: pendingPaymentsCount,
+            bg: "bg-[#FFF3CB]",
+            color: "text-amber-600",
+            Icon: Banknote,
+          },
+          {
+            label: "Closed Orders",
+            value: closedOrdersCount,
+            bg: "bg-[#E9EDFF]",
+            color: "text-indigo-600",
+            Icon: Package,
+          },
         ].map(c => (
           <div key={c.label} className="rounded-xl border border-slate-200 bg-white p-5">
             <div className={`mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full ${c.bg} ${c.color}`}>
@@ -91,18 +264,37 @@ export function CollectionsPage() {
         ))}
       </div>
 
+      {/* ── Filter Tabs ───────────────────────────────────────────────────── */}
       <div className="mb-4 flex flex-wrap gap-2">
-        {filters.map(f => (
-          <button key={f} onClick={() => setFilter(f)}
-            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${filter === f ? "bg-[#0B2C66] text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
-            {f}
+        {TABS.map(tab => (
+          <button
+            key={tab}
+            onClick={() => setFilter(tab)}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+              filter === tab
+                ? "bg-[#0B2C66] text-white"
+                : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            {tab}
+            {tab === "Payment Pending" && pendingPaymentsCount > 0 && (
+              <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                {pendingPaymentsCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
+      {/* ── Table ────────────────────────────────────────────────────────── */}
       {orders.length === 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm text-slate-500">
-          No orders in collections. Orders appear here when Invoice Generated, Payment Pending, or Payment Completed.
+        <div className="rounded-xl border border-slate-200 bg-white px-5 py-12 text-center text-sm text-slate-500">
+          <DollarSign className="mx-auto mb-3 h-8 w-8 text-slate-300" />
+          No invoices yet. Orders appear here automatically after delivery confirmation.
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-500">
+          No orders match this filter.
         </div>
       ) : (
         <div className="rounded-xl border border-slate-200 bg-white">
@@ -110,40 +302,77 @@ export function CollectionsPage() {
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-5 py-3">Branch</th>
                   <th className="px-5 py-3">Order ID</th>
                   <th className="px-5 py-3">Invoice No.</th>
-                  <th className="px-5 py-3">Date</th>
-                  <th className="px-5 py-3 text-right">Value</th>
-                  <th className="px-5 py-3">Status</th>
+                  <th className="px-5 py-3">Branch</th>
+                  <th className="px-5 py-3">Delivery Date</th>
+                  <th className="px-5 py-3 text-right">Amount</th>
+                  <th className="px-5 py-3">Payment Status</th>
+                  <th className="px-5 py-3">Order Status</th>
+                  <th className="px-5 py-3">Payment Date</th>
                   <th className="px-5 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.map(order => (
-                  <tr key={order.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-3">
-                      <div className="font-medium text-slate-800">{order.branch}</div>
-                    </td>
-                    <td className="px-5 py-3 font-mono text-xs text-[#0B2C66]">{order.id}</td>
-                    <td className="px-5 py-3 font-mono text-xs text-violet-700">{order.invoiceNumber ?? "—"}</td>
-                    <td className="px-5 py-3 text-slate-500">{order.date}</td>
-                    <td className="px-5 py-3 text-right font-semibold text-slate-800">{fmt(order.value)}</td>
-                    <td className="px-5 py-3">
-                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadge(order.status as WorkflowLifecycleStatus)}`}>
-                        {order.status}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3">
-                      {(order.status === "Invoice Generated" || order.status === "Payment Pending") && (
-                        <button onClick={() => handleMarkPaid(order.id)}
-                          className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors">
-                          Mark Paid
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {rows.map(order => {
+                  const isPending = order.status === "Payment Pending" || order.status === "Invoice Generated";
+                  const isClosed  = order.status === "Order Closed";
+                  const paymentDate = isClosed ? (order.deliveredDate ?? "27 Jun 2026") : null;
+
+                  return (
+                    <tr key={order.id} className="hover:bg-slate-50">
+                      <td className="px-5 py-3 font-mono text-xs font-semibold text-[#0B2C66]">
+                        {order.id}
+                      </td>
+                      <td className="px-5 py-3 font-mono text-xs text-violet-700">
+                        {order.invoiceNumber ?? "—"}
+                      </td>
+                      <td className="px-5 py-3 font-medium text-slate-800">
+                        {order.branch}
+                      </td>
+                      <td className="px-5 py-3 text-slate-500 text-xs">
+                        {order.deliveredDate ?? order.date}
+                        {order.deliveredTime && (
+                          <span className="ml-1 text-slate-400">{order.deliveredTime}</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-right font-semibold text-slate-800">
+                        {fmt(order.value)}
+                      </td>
+                      <td className="px-5 py-3">
+                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${paymentStatusBadge(order.status as WorkflowLifecycleStatus)}`}>
+                          {derivePaymentStatus(order.status as WorkflowLifecycleStatus)}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3">
+                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${orderStatusBadge(order.status as WorkflowLifecycleStatus)}`}>
+                          {deriveOrderStatus(order.status as WorkflowLifecycleStatus)}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-xs text-slate-500">
+                        {paymentDate ?? "—"}
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setPreviewOrder(order)}
+                            className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                          >
+                            View Invoice
+                          </button>
+                          {isPending && (
+                            <button
+                              onClick={() => handleMarkPaid(order.id)}
+                              className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors"
+                            >
+                              Mark Paid
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

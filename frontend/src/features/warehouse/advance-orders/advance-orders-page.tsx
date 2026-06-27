@@ -1,39 +1,118 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Zap } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
 import { DEMO_ADVANCE_ORDERS, DEMO_URGENT_ORDERS } from "../../../shared/data/demo-mock-data";
-
+import { getWorkflowOrders, type WorkflowOrderLive } from "../../../shared/lib/demo-store";
 
 type Tab = "Today" | "Tomorrow" | "Future";
 
-const TODAY = "Jun 17, 2026";
-const TOMORROW = "Jun 18, 2026";
+// ── Normalised row shape shown in the table ───────────────────────────────────
+type AdvanceRow = {
+  id: string;
+  branch: string;
+  product: string;
+  qty: number;
+  unit: string;
+  deliveryDate: string;
+  occasion: string | undefined;
+  priority: "Normal" | "Urgent";
+  status: string;
+  value: number | undefined; // only for live orders
+};
 
+// ── Derive today / tomorrow labels from real clock ────────────────────────────
+function dateLabel(d: Date) {
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+const TODAY_LABEL = dateLabel(new Date());
+const TOMORROW_LABEL = dateLabel(new Date(Date.now() + 86_400_000));
+
+// ── Map live WorkflowOrderLive → AdvanceRow[] ─────────────────────────────────
+// One WorkflowOrderLive can contain multiple items; we show a row per item.
+function liveToRows(o: WorkflowOrderLive): AdvanceRow[] {
+  return o.items.map((item) => ({
+    id: o.advanceOrderId ?? o.id,
+    branch: o.branch,
+    product: item.product,
+    qty: item.orderedQty,
+    unit: item.unit,
+    deliveryDate: o.deliveryDate ?? o.date,
+    occasion: o.occasion,
+    priority: o.priority,
+    status: o.status,
+    value: o.value,
+  }));
+}
+
+// ── Map DEMO_ADVANCE_ORDERS → AdvanceRow ──────────────────────────────────────
+function mockToRow(o: typeof DEMO_ADVANCE_ORDERS[number]): AdvanceRow {
+  return {
+    id: o.id,
+    branch: o.branch,
+    product: o.product,
+    qty: o.qty,
+    unit: o.unit,
+    deliveryDate: o.deliveryDate,
+    occasion: o.occasion,
+    priority: o.priority,
+    status: o.status,
+    value: undefined,
+  };
+}
+
+// ── Badge helpers ─────────────────────────────────────────────────────────────
 function priorityBadge(p: string) {
   return p === "Urgent" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600";
 }
+
 function statusBadge(s: string) {
-  if (s === "Confirmed") return "bg-emerald-100 text-emerald-700";
-  if (s === "Processing") return "bg-blue-100 text-blue-700";
+  if (s === "Confirmed" || s === "Approved" || s === "Delivered" || s === "Order Closed") return "bg-emerald-100 text-emerald-700";
+  if (s === "Processing" || s === "Production Started" || s === "Added To Production" || s === "Production Completed") return "bg-blue-100 text-blue-700";
+  if (s === "Ready For Dispatch" || s === "Morning Dispatch" || s === "Evening Dispatch" || s === "In Transit") return "bg-violet-100 text-violet-700";
+  if (s === "Rejected") return "bg-red-100 text-red-700";
   return "bg-amber-100 text-amber-700";
 }
+
 function urgentStatusBadge(s: string) {
   if (s === "Dispatched") return "bg-emerald-100 text-emerald-700";
   if (s === "In Production") return "bg-blue-100 text-blue-700";
   return "bg-amber-100 text-amber-700";
 }
 
+// ── Component ─────────────────────────────────────────────────────────────────
 export function WarehouseAdvanceOrdersPage() {
   const [tab, setTab] = useState<Tab>("Today");
   const tabs: Tab[] = ["Today", "Tomorrow", "Future"];
 
-  const filtered = DEMO_ADVANCE_ORDERS.filter(o => {
-    if (tab === "Today") return o.deliveryDate === TODAY;
-    if (tab === "Tomorrow") return o.deliveryDate === TOMORROW;
-    return o.deliveryDate !== TODAY && o.deliveryDate !== TOMORROW;
-  });
+  // Read live workflow advance orders and re-render on storage changes
+  const [rows, setRows] = useState<AdvanceRow[]>(() => buildRows());
+
+  function buildRows(): AdvanceRow[] {
+    const live = getWorkflowOrders().filter((o) => o.isAdvanceOrder === true);
+    if (live.length > 0) {
+      return live.flatMap(liveToRows);
+    }
+    // Fallback to static mock data when no live advance orders exist
+    return DEMO_ADVANCE_ORDERS.map(mockToRow);
+  }
+
+  useEffect(() => {
+    const handler = () => setRows(buildRows());
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+  }, []);
+
+  // ── Tab filtering ───────────────────────────────────────────────────────────
+  function matchTab(deliveryDate: string, t: Tab) {
+    if (t === "Today") return deliveryDate === TODAY_LABEL;
+    if (t === "Tomorrow") return deliveryDate === TOMORROW_LABEL;
+    return deliveryDate !== TODAY_LABEL && deliveryDate !== TOMORROW_LABEL;
+  }
+
+  const filtered = rows.filter((r) => matchTab(r.deliveryDate, tab));
+  const countFor = (t: Tab) => rows.filter((r) => matchTab(r.deliveryDate, t)).length;
 
   return (
     <ErpLayout sidebarItems={buildSidebar(WAREHOUSE_NAV, [...WAREHOUSE_SIDEBAR_LABELS], "Advance Orders")}>
@@ -50,7 +129,7 @@ export function WarehouseAdvanceOrdersPage() {
             <h3 className="font-semibold text-red-800">URGENT ORDERS — Requires Immediate Action</h3>
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            {DEMO_URGENT_ORDERS.map(u => (
+            {DEMO_URGENT_ORDERS.map((u) => (
               <div key={u.id} className="rounded-lg border border-red-200 bg-white p-4">
                 <div className="flex items-center justify-between">
                   <span className="font-mono text-xs font-semibold text-red-600">{u.id}</span>
@@ -67,17 +146,11 @@ export function WarehouseAdvanceOrdersPage() {
 
       {/* Tabs */}
       <div className="mb-4 flex gap-1 rounded-lg bg-slate-100 p-1 w-fit">
-        {tabs.map(t => (
+        {tabs.map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={`rounded-md px-4 py-2 text-sm font-semibold transition-colors ${tab === t ? "bg-white text-[#0B2C66] shadow-sm" : "text-slate-600 hover:text-slate-800"}`}>
             {t}
-            <span className="ml-2 rounded-full bg-slate-200 px-1.5 py-0.5 text-xs">
-              {DEMO_ADVANCE_ORDERS.filter(o => {
-                if (t === "Today") return o.deliveryDate === TODAY;
-                if (t === "Tomorrow") return o.deliveryDate === TOMORROW;
-                return o.deliveryDate !== TODAY && o.deliveryDate !== TOMORROW;
-              }).length}
-            </span>
+            <span className="ml-2 rounded-full bg-slate-200 px-1.5 py-0.5 text-xs">{countFor(t)}</span>
           </button>
         ))}
       </div>
@@ -95,15 +168,18 @@ export function WarehouseAdvanceOrdersPage() {
                 <th className="px-5 py-3">Delivery Date</th>
                 <th className="px-5 py-3">Occasion</th>
                 <th className="px-5 py-3">Priority</th>
-                <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3">Workflow Status</th>
+                <th className="px-5 py-3 text-right">Order Value</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 && (
-                <tr><td colSpan={8} className="px-5 py-8 text-center text-slate-400">No advance orders for this period.</td></tr>
+                <tr>
+                  <td colSpan={9} className="px-5 py-8 text-center text-slate-400">No advance orders for this period.</td>
+                </tr>
               )}
-              {filtered.map(o => (
-                <tr key={o.id} className="hover:bg-slate-50">
+              {filtered.map((o, idx) => (
+                <tr key={`${o.id}-${idx}`} className="hover:bg-slate-50">
                   <td className="px-5 py-3 font-mono text-xs font-semibold text-[#1B4DB1]">{o.id}</td>
                   <td className="px-5 py-3 text-slate-700">{o.branch}</td>
                   <td className="px-5 py-3 font-medium text-slate-800">{o.product}</td>
@@ -119,6 +195,9 @@ export function WarehouseAdvanceOrdersPage() {
                   <td className="px-5 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge(o.status)}`}>{o.status}</span>
                   </td>
+                  <td className="px-5 py-3 text-right font-semibold text-slate-800">
+                    {o.value != null ? `₹${o.value.toLocaleString("en-IN")}` : "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -128,5 +207,3 @@ export function WarehouseAdvanceOrdersPage() {
     </ErpLayout>
   );
 }
-
-

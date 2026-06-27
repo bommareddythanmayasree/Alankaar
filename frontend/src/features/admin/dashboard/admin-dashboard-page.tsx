@@ -59,7 +59,7 @@ export function AdminDashboardPage() {
     return [
       {
         label: "Total Revenue",
-        value: "?98,76,430",
+        value: "₹98,76,430",
         icon: <Sparkles className="h-5 w-5 text-[#3559E0]" />,
       },
       {
@@ -84,7 +84,7 @@ export function AdminDashboardPage() {
       },
       {
         label: "Total Stock Value",
-        value: "?78,50,000",
+        value: "₹78,50,000",
         icon: <Building2 className="h-5 w-5 text-[#16A34A]" />,
       },
       {
@@ -191,6 +191,7 @@ const visibleActivities = showAllActivities
     />
 
     <Tooltip
+      formatter={(value) => `₹${new Intl.NumberFormat("en-IN").format(Number(value ?? 0))}`}
       contentStyle={{
         borderRadius: "10px",
         border: "1px solid #E2E8F0",

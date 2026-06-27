@@ -57,8 +57,8 @@ export function DemandVsDeliveryPage() {
             <BarChart data={data as unknown[]} margin={{ left: 0, right: 8 }}>
               <CartesianGrid vertical={false} stroke="#EEF2F7" />
               <XAxis dataKey={xKey} tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => period === "Monthly" ? `?${(Number(v) / 100000).toFixed(1)}L` : Number(v) > 10000 ? `?${(Number(v) / 1000).toFixed(0)}k` : v.toString()} />
-              <Tooltip formatter={(v: unknown) => Number(v) > 10000 ? `?${Number(v).toLocaleString("en-IN")}` : String(v)} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => period === "Monthly" ? `₹${(Number(v) / 100000).toFixed(1)}L` : Number(v) > 10000 ? `₹${(Number(v) / 1000).toFixed(0)}k` : v.toString()} />
+              <Tooltip formatter={(v: unknown) => Number(v) > 10000 ? `₹${Number(v).toLocaleString("en-IN")}` : String(v)} />
               <Legend />
               <Bar dataKey="requested" name="Requested" fill="#6366f1" radius={[4, 4, 0, 0]} />
               <Bar dataKey="delivered" name="Delivered" fill="#10b981" radius={[4, 4, 0, 0]} />
@@ -76,8 +76,8 @@ export function DemandVsDeliveryPage() {
             <LineChart data={data as unknown[]} margin={{ left: 0, right: 8 }}>
               <CartesianGrid stroke="#EEF2F7" />
               <XAxis dataKey={xKey} tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => Number(v) > 10000 ? `?${(Number(v) / 1000).toFixed(0)}k` : v.toString()} />
-              <Tooltip formatter={(v: unknown) => Number(v) > 10000 ? `?${Number(v).toLocaleString("en-IN")}` : String(v)} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => Number(v) > 10000 ? `₹${(Number(v) / 1000).toFixed(0)}k` : v.toString()} />
+              <Tooltip formatter={(v: unknown) => Number(v) > 10000 ? `₹${Number(v).toLocaleString("en-IN")}` : String(v)} />
               <Legend />
               <Line dataKey="requested" name="Requested" stroke="#6366f1" strokeWidth={2} dot={false} />
               <Line dataKey="delivered" name="Delivered" stroke="#10b981" strokeWidth={2} dot={false} />

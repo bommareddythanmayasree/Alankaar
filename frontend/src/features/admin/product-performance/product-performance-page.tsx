@@ -38,8 +38,8 @@ export function ProductPerformancePage() {
             <BarChart data={DEMO_PRODUCT_PERFORMANCE} margin={{ left: 0 }}>
               <CartesianGrid vertical={false} stroke="#EEF2F7" />
               <XAxis dataKey="product" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `?${(v / 1000).toFixed(0)}k`} />
-              <Tooltip formatter={(v: unknown) => `?${Number(v).toLocaleString("en-IN")}`} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `₹${(v / 1000).toFixed(0)}k`} />
+              <Tooltip formatter={(v: unknown) => `₹${Number(v).toLocaleString("en-IN")}`} />
               <Bar dataKey="revenue" name="Revenue" fill="#1D4ED8" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>

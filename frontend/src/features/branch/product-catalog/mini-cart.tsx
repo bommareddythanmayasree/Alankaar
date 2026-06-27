@@ -4,6 +4,7 @@ import { Minus, Plus, ShoppingCart, Trash2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../../../app/branch/branch-context";
 import { CART_FAB_ID } from "./fly-to-cart";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 // ── Mini Cart Drawer ──────────────────────────────────────────────────────────
 
@@ -83,7 +84,7 @@ function MiniCartDrawer({ onClose }: { onClose: () => void }) {
                 />
                 <div className="flex flex-1 flex-col gap-1 min-w-0">
                   <p className="text-sm font-semibold text-slate-900 truncate leading-tight">{item.name}</p>
-                  <p className="text-xs text-slate-500">&#8377;{item.price.toFixed(2)} / unit</p>
+                  <p className="text-xs text-slate-500">₹{item.price.toFixed(2)} / unit</p>
 
                   <div className="mt-auto flex items-center justify-between">
                     {/* Qty controls */}
@@ -108,7 +109,7 @@ function MiniCartDrawer({ onClose }: { onClose: () => void }) {
                     {/* Line total + remove */}
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-bold text-slate-800">
-                        &#8377;{(item.price * item.quantity).toFixed(2)}
+                        ₹{(item.price * item.quantity).toFixed(2)}
                       </span>
                       <button
                         onClick={() => removeItem(item.id)}
@@ -130,7 +131,7 @@ function MiniCartDrawer({ onClose }: { onClose: () => void }) {
           <div className="border-t border-slate-200 bg-white px-4 pb-5 pt-3 space-y-3">
             <div className="flex items-center justify-between text-sm">
               <span className="text-slate-600">Subtotal</span>
-              <span className="text-xl font-bold text-[#0A3A92]">&#8377;{subtotal.toFixed(2)}</span>
+              <span className="text-xl font-bold text-[#0A3A92]">₹{subtotal.toFixed(2)}</span>
             </div>
             <p className="text-xs text-slate-400">GST & delivery calculated at checkout</p>
             <div className="grid grid-cols-2 gap-2">

@@ -1132,15 +1132,13 @@ export const WAREHOUSE_INVOICE_DATA = [
 export const WAREHOUSE_SIDEBAR_LABELS = [
   "Dashboard",
   "Orders Workflow",
-  "Order Verification",
-  "Order Management",
   "Invoice Generation",
   "Dispatch Tracking",
   "Production Planning",
   "Delivery Tracking",
-  "Order Closure",
   "Collections",
   "Advance Orders",
+  "Tray Management",
   "Notifications",
   "Settings",
 ] as const;

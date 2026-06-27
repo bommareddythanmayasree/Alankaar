@@ -14,6 +14,7 @@ import { BRANCH_WORKFLOW_KPI, BRANCH_MY_ORDERS } from "../../../shared/data/work
 import { DEMO_BRANCH_ACCOUNTS } from "../../../shared/data/demo-mock-data";
 import { getCurrentDemoBranchName } from "../../../shared/lib/demo-store";
 import { useNavigate } from "react-router-dom";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 
 const s = BRANCH_SUMMARY;
@@ -172,7 +173,7 @@ export function BranchDashboardPage() {
 </td>
                   <td className="px-3 py-3">{r.date}</td>
                   <td className="px-3 py-3">{r.items} items</td>
-                  <td className="px-3 py-3">&#8377;{r.amount.toLocaleString("en-IN")}</td>
+                  <td className="px-3 py-3">{formatCurrency(r.amount)}</td>
                   <td className="px-3 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(r.status)}`}>
                       {r.status}
@@ -189,7 +190,7 @@ export function BranchDashboardPage() {
           <h3 className="mb-4 text-lg font-semibold">Branch Monthly Performance</h3>
           <div className="space-y-3">
             <PerfRow label="Orders This Month" value={String(s.ordersThisMonth)} />
-            <PerfRow label="Monthly Purchase Value" value={`&#8377;${s.monthlyPurchaseValue.toLocaleString("en-IN")}`} />
+            <PerfRow label="Monthly Purchase Value" value={formatCurrency(s.monthlyPurchaseValue)} />
             <PerfRow label="Pending Deliveries" value={String(s.pendingDeliveries)} />
           </div>
 

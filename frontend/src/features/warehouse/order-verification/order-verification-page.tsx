@@ -16,6 +16,7 @@ import {
 } from "../../../shared/lib/demo-store";
 import { useWarehouse } from "../../../app/warehouse/warehouse-context";
 import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 type VerifyStatus = "Pending" | "Approved" | "Rejected" | "Partial";
 
@@ -387,7 +388,7 @@ export function OrderVerificationPage() {
                     <td className="px-3 py-3">{order.branch}</td>
                     <td className="px-3 py-3">{order.date}</td>
                     <td className="px-3 py-3">{order.itemsCount} items</td>
-                    <td className="px-3 py-3">&#8377;{new Intl.NumberFormat("en-IN").format(order.amount)}</td>
+                    <td className="px-3 py-3">{formatCurrency(order.amount)}</td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-1.5">
                         <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusClass(order.status)}`}>

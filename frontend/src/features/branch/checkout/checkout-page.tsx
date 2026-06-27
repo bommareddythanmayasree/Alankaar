@@ -11,8 +11,9 @@ import { ErpLayout } from "../../shared/erp-layout";
 import { BRANCH_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { BRANCH_SIDEBAR_LABELS } from "../../../shared/data/branch-mock-data";
 import { useCart } from "../../../app/branch/branch-context";
-import { placeOrder as demoPlaceOrder, getCurrentDemoBranchName, saveSubmittedOrder, saveWarehouseOrder } from "../../../shared/lib/demo-store";
+import { placeOrder as demoPlaceOrder, getCurrentDemoBranchName, saveSubmittedOrder, saveWarehouseOrder, saveWorkflowOrder } from "../../../shared/lib/demo-store";
 import { useWarehouseProducts } from "../../../app/warehouse/warehouse-context";
+import { getProductUnit } from "../../../shared/utils/product-units";
 
 const LIFECYCLE_STEPS = [
   { label: "Order Submitted",      icon: <ClipboardList className="h-4 w-4" /> },
@@ -97,6 +98,24 @@ export function CheckoutPage() {
       status: "Under Review",
       createdAt: now.toISOString(),
       amount: estimatedValue,
+    });
+
+    // Save to workflowOrders so Orders Workflow page picks it up immediately
+    saveWorkflowOrder({
+      id: newOrderId,
+      branch: currentBranch,
+      date: orderDate,
+      time: now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }),
+      priority: orderItems.some(i => i.priority === "Urgent") ? "Urgent" : "Normal",
+      value: estimatedValue,
+      status: "Order Placed",
+      items: cartItems.map(i => ({
+        product: i.name,
+        orderedQty: i.quantity,
+        approvedQty: 0,
+        rejectedQty: 0,
+        unit: getProductUnit(i.name),
+      })),
     });
 
     // Clear session data
@@ -220,7 +239,7 @@ export function CheckoutPage() {
                       <td className="px-5 py-3">
                         <div className="font-medium text-slate-800">{item.name}</div>
                       </td>
-                      <td className="px-5 py-3 text-right font-semibold text-slate-700">{item.quantity}</td>
+                      <td className="px-5 py-3 text-right font-semibold text-slate-700">{item.quantity} {getProductUnit(item.name)}</td>
                       <td className="px-5 py-3 text-right font-semibold text-slate-700">
                         ₹{(item.price * item.quantity).toLocaleString("en-IN")}
                       </td>
@@ -241,7 +260,7 @@ export function CheckoutPage() {
                 <div className="flex flex-wrap gap-2">
                   {urgentItems.map(i => (
                     <span key={i.id} className="rounded-full bg-red-100 border border-red-200 px-2.5 py-0.5 text-xs font-semibold text-red-700">
-                      <Zap className="inline h-3 w-3 mr-0.5" />{i.name} × {i.quantity}
+                      <Zap className="inline h-3 w-3 mr-0.5" />{i.name} × {i.quantity} {getProductUnit(i.name)}
                     </span>
                   ))}
                 </div>

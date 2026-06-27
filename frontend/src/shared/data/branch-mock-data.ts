@@ -557,11 +557,11 @@ export const BRANCH_SIDEBAR_LABELS = [
   "Product Catalog",
   "Shopping Cart",
   "Checkout",
-  "Order Tracking",
   "Order History",
   "Payment Status",
   "Payment History",
   "Advance Orders",
+  "Tray Returns",
   "Notifications",
   "Settings",
 ] as const;

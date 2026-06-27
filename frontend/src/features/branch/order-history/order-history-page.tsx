@@ -5,6 +5,7 @@ import { BRANCH_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { BRANCH_SIDEBAR_LABELS } from "../../../shared/data/branch-mock-data";
 import { BRANCH_HISTORY_ORDERS, type BranchOrderStatus } from "../../../shared/data/branch-mock-data";
 import { getDemoOrder, getDemoTrackingStatus } from "../../../shared/lib/demo-store";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 function statusBadge(status: string) {
   if (status === "Delivered") return "bg-emerald-100 text-emerald-700";
@@ -130,7 +131,7 @@ export function OrderHistoryPage() {
                   <td className="px-3 py-3">{row.branchName}</td>
                   <td className="px-3 py-3">{row.date}</td>
                   <td className="px-3 py-3">{row.items} items</td>
-                  <td className="px-3 py-3 font-medium">&#8377;{row.amount.toLocaleString("en-IN")}</td>
+                  <td className="px-3 py-3 font-medium">{formatCurrency(row.amount)}</td>
                   <td className="px-3 py-3">
                     <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusBadge(row.status)}`}>{row.status}</span>
                   </td>
@@ -190,7 +191,7 @@ export function OrderHistoryPage() {
                 </div>
                 <div className="rounded-xl bg-slate-50 p-3">
                   <p className="text-xs text-slate-500">Amount</p>
-                  <p className="font-semibold text-[#0A3A92]">&#8377;{selectedOrder.amount.toLocaleString("en-IN")}</p>
+                  <p className="font-semibold text-[#0A3A92]">{formatCurrency(selectedOrder.amount)}</p>
                   {selectedOrder.isPartial && (
                     <p className="mt-0.5 text-[10px] text-orange-600 font-medium">Approved amount only</p>
                   )}

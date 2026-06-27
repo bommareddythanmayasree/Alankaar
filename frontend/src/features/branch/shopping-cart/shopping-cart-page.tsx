@@ -1,37 +1,25 @@
 /**
  * REVIEW ORDER — Branch Portal
  * Rebranded from "Shopping Cart".
- * Displays the pending order with quantities, priorities, and delivery slot.
+ * Displays the pending order with quantities and priorities before submitting to warehouse.
  * Route: /branch/shopping-cart (unchanged)
  */
 import { useMemo, useState } from "react";
-import { Zap, Trash2, ClipboardList, Truck, ChevronRight, AlertCircle } from "lucide-react";
+import { Zap, Trash2, ClipboardList, ChevronRight, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { ErpLayout } from "../../shared/erp-layout";
 import { BRANCH_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { BRANCH_SIDEBAR_LABELS } from "../../../shared/data/branch-mock-data";
 import { useCart } from "../../../app/branch/branch-context";
+import { getProductUnit } from "../../../shared/utils/product-units";
 
 type Priority = "Normal" | "Urgent";
-type DeliverySlot = "Morning Dispatch" | "Evening Dispatch";
-
-const SLOTS: DeliverySlot[] = ["Morning Dispatch", "Evening Dispatch"];
-const SLOT_TIMES: Record<DeliverySlot, string> = {
-  "Morning Dispatch": "07:00 AM — 12:00 PM",
-  "Evening Dispatch": "04:00 PM — 08:00 PM",
-};
-
-function slotIcon(slot: DeliverySlot) {
-  if (slot === "Morning Dispatch") return "🌅";
-  return "🌙";
-}
 
 export function ShoppingCartPage() {
   const navigate = useNavigate();
   const { cartItems, removeItem } = useCart();
 
   const [priorities, setPriorities] = useState<Record<string, Priority>>({});
-  const [slot, setSlot] = useState<DeliverySlot>("Morning Dispatch");
 
   const totalProducts = cartItems.length;
   const totalQty = useMemo(() => cartItems.reduce((s, i) => s + i.quantity, 0), [cartItems]);
@@ -51,7 +39,7 @@ export function ShoppingCartPage() {
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-slate-800">Review Order</h2>
-          <p className="mt-1 text-slate-500">Confirm products, set priorities, and choose your delivery slot before submitting to warehouse.</p>
+          <p className="mt-1 text-slate-500">Confirm products and set priorities before submitting to warehouse.</p>
         </div>
         <button onClick={() => navigate("/branch/product-catalog")}
           className="text-sm font-semibold text-[#0B2C66] hover:underline">
@@ -94,7 +82,7 @@ export function ShoppingCartPage() {
                           <td className="px-5 py-3">
                             <div className="font-medium text-slate-800">{item.name}</div>
                           </td>
-                          <td className="px-5 py-3 text-right font-semibold text-slate-700">{item.quantity}</td>
+                          <td className="px-5 py-3 text-right font-semibold text-slate-700">{item.quantity} {getProductUnit(item.name)}</td>
                           <td className="px-5 py-3 text-center">
                             <button onClick={() => togglePriority(item.id)}
                               className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
@@ -131,30 +119,13 @@ export function ShoppingCartPage() {
                 <div className="mt-2 flex flex-wrap gap-2">
                   {urgentItems.map(i => (
                     <span key={i.id} className="rounded-full bg-red-100 border border-red-200 px-2.5 py-0.5 text-xs font-semibold text-red-700">
-                      {i.name} × {i.quantity}
+                      {i.name} × {i.quantity} {getProductUnit(i.name)}
                     </span>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Delivery slot */}
-            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
-              <div className="mb-3 flex items-center gap-2">
-                <Truck className="h-4 w-4 text-slate-500" />
-                <h3 className="font-semibold text-slate-800">Expected Delivery Slot</h3>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                {SLOTS.map(s => (
-                  <button key={s} onClick={() => setSlot(s)}
-                    className={`rounded-xl border p-3 text-left transition-colors ${slot === s ? "border-[#0B2C66] bg-[#E9EDFF]" : "border-slate-200 hover:bg-slate-50"}`}>
-                    <div className="mb-1 text-xl">{slotIcon(s)}</div>
-                    <div className={`text-sm font-semibold ${slot === s ? "text-[#0B2C66]" : "text-slate-700"}`}>{s}</div>
-                    <div className="text-xs text-slate-500">{SLOT_TIMES[s]}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
           </section>
 
           {/* Summary sidebar */}
@@ -176,10 +147,6 @@ export function ShoppingCartPage() {
                     <span className="font-semibold">{urgentItems.length}</span>
                   </div>
                 )}
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Delivery Slot</span>
-                  <span className="font-semibold text-slate-700">{slot.replace(" Dispatch", "")}</span>
-                </div>
                 <div className="border-t border-slate-100 pt-3 flex justify-between">
                   <span className="text-slate-500">Est. Order Value</span>
                   <span className="text-lg font-bold text-[#0B2C66]">₹{estimatedValue.toLocaleString("en-IN")}</span>
@@ -192,7 +159,6 @@ export function ShoppingCartPage() {
               </div>
 
               <button onClick={() => {
-                sessionStorage.setItem("orderSlot", slot);
                 sessionStorage.setItem("orderPriorities", JSON.stringify(priorities));
                 navigate("/branch/checkout");
               }}

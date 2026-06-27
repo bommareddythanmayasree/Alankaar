@@ -11,7 +11,8 @@ import { ErpLayout } from "../../shared/erp-layout";
 import { BRANCH_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { BRANCH_SIDEBAR_LABELS } from "../../../shared/data/branch-mock-data";
 import { useCart } from "../../../app/branch/branch-context";
-import { BRANCH_ORDER_INTELLIGENCE } from "../../../shared/data/workflow-mock-data";
+import { useActiveProducts } from "../../../shared/hooks/use-active-products";
+import { getUnitLabel, PRODUCT_CATEGORY_MAP } from "../../../shared/utils/product-units";
 
 // Product images import
 import kalakandImg from "../../../assets/products/kalakand.jpg";
@@ -34,6 +35,28 @@ import coffeeImg from "../../../assets/products/coffee.jpg";
 import appleJuiceImg from "../../../assets/products/apple-juice.jpg";
 import lassiImg from "../../../assets/products/lassi.jpg";
 import brownBreadImg from "../../../assets/products/brown-bread.jpg";
+import rasmalaiImg from "../../../assets/products/rasmalai.jpg";
+import badushaImg from "../../../assets/products/badusha.jpg";
+import dryFruitBarfiImg from "../../../assets/products/dry-fruit-barfi.jpg";
+import chocolateCakeImg from "../../../assets/products/chocolate-cake.jpg";
+import fruitCakeImg from "../../../assets/products/fruit-cake.jpg";
+import cupCakeImg from "../../../assets/products/cup-cake.jpg";
+import ruskImg from "../../../assets/products/rusk.jpg";
+import butterCookiesImg from "../../../assets/products/butter-cookies.jpg";
+import chocolateCookiesImg from "../../../assets/products/chocolate-cookies.jpg";
+import plumCakeImg from "../../../assets/products/plum-cake.jpg";
+import vegRollImg from "../../../assets/products/veg-roll.jpg";
+import springRollImg from "../../../assets/products/spring-roll.jpg";
+import kharaBunImg from "../../../assets/products/khara-bun.jpg";
+import sandwichImg from "../../../assets/products/sandwich.jpg";
+import cutletImg from "../../../assets/products/cutlet.jpg";
+import burgerImg from "../../../assets/products/burger.jpg";
+import pizzaSliceImg from "../../../assets/products/pizza-slice.jpg";
+import mangoJuiceImg from "../../../assets/products/mango-juice.jpg";
+import orangeJuiceImg from "../../../assets/products/orange-juice.jpg";
+import coldCoffeeImg from "../../../assets/products/cold-coffee.jpg";
+import milkshakeImg from "../../../assets/products/milkshake.jpg";
+import seasonalGiftBoxImg from "../../../assets/products/seasonal-gift-box.jpg";
 
 type Priority = "Normal" | "Urgent";
 
@@ -48,17 +71,7 @@ type OrderLine = {
   badge?: string;
 };
 
-const CATEGORIES = ["All", "Sweets", "Snacks", "Bakery", "Beverages"];
-
-const PRODUCT_CATEGORIES: Record<string, string> = {
-  "Kalakand": "Sweets", "Milk Cake": "Sweets", "Kaju Katli": "Sweets",
-  "Rasgulla": "Sweets", "Gulab Jamun": "Sweets", "Dry Fruit Laddu": "Sweets",
-  "Mysore Pak": "Sweets", "Boondi Laddu": "Sweets", "Motichoor Laddu": "Sweets",
-  "Milk Bread": "Bakery", "Brown Bread": "Bakery", "Cream Roll": "Bakery",
-  "Veg Puff": "Snacks", "Egg Puff": "Snacks", "Samosa": "Snacks",
-  "Badam Milk": "Beverages", "Tea": "Beverages", "Coffee": "Beverages",
-  "Apple Juice": "Beverages", "Lassi": "Beverages",
-};
+const CATEGORIES = ["All", "Sweets", "Snacks", "Bakery", "Beverages", "Seasonal"];
 
 // Product images mapping
 const PRODUCT_IMAGES: Record<string, string> = {
@@ -69,19 +82,41 @@ const PRODUCT_IMAGES: Record<string, string> = {
   "Gulab Jamun": gulabJamunImg,
   "Dry Fruit Laddu": dryFruitLadduImg,
   "Mysore Pak": mysorePakImg,
-  "Milk Bread": milkBreadImg,
-  "Veg Puff": vegPuffImg,
-  "Egg Puff": eggPuffImg,
-  "Cream Roll": creamRollImg,
-  "Samosa": samosaImg,
   "Boondi Laddu": boondiLadduImg,
   "Motichoor Laddu": motichoorLadduImg,
+  "Rasmalai": rasmalaiImg,
+  "Badusha": badushaImg,
+  "Dry Fruit Barfi": dryFruitBarfiImg,
+  "Milk Bread": milkBreadImg,
+  "Brown Bread": brownBreadImg,
+  "Cream Roll": creamRollImg,
+  "Chocolate Cake": chocolateCakeImg,
+  "Fruit Cake": fruitCakeImg,
+  "Cup Cake": cupCakeImg,
+  "Rusk": ruskImg,
+  "Butter Cookies": butterCookiesImg,
+  "Chocolate Cookies": chocolateCookiesImg,
+  "Plum Cake": plumCakeImg,
+  "Veg Puff": vegPuffImg,
+  "Egg Puff": eggPuffImg,
+  "Samosa": samosaImg,
+  "Veg Roll": vegRollImg,
+  "Spring Roll": springRollImg,
+  "Khara Bun": kharaBunImg,
+  "Sandwich": sandwichImg,
+  "Cutlet": cutletImg,
+  "Burger": burgerImg,
+  "Pizza Slice": pizzaSliceImg,
   "Badam Milk": badamMilkImg,
   "Tea": teaImg,
   "Coffee": coffeeImg,
   "Apple Juice": appleJuiceImg,
   "Lassi": lassiImg,
-  "Brown Bread": brownBreadImg,
+  "Mango Juice": mangoJuiceImg,
+  "Orange Juice": orangeJuiceImg,
+  "Cold Coffee": coldCoffeeImg,
+  "Milkshake": milkshakeImg,
+  "Seasonal Gift Box": seasonalGiftBoxImg,
 };
 
 function badgeStyle(badge: string) {
@@ -103,6 +138,7 @@ function OrderCard({
   line: OrderLine;
   onChange: (product: string, qty: number, priority: Priority) => void;
 }) {
+  const unit = line.unit || getUnitLabel(PRODUCT_CATEGORY_MAP[line.product] ?? "");
   return (
     <div className={`rounded-xl border bg-white transition-shadow hover:shadow-md ${line.priority === "Urgent" ? "border-red-200" : "border-slate-200"}`}>
       {/* Product Image */}
@@ -118,7 +154,7 @@ function OrderCard({
         <div className="mb-3 flex items-start justify-between gap-2">
           <div>
             <h4 className="font-semibold text-slate-800">{line.product}</h4>
-            <p className="text-xs text-slate-500">{PRODUCT_CATEGORIES[line.product] ?? "General"}</p>
+            <p className="text-xs text-slate-500">{PRODUCT_CATEGORY_MAP[line.product] ?? "General"}</p>
           </div>
           {line.badge && (
             <span className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${badgeStyle(line.badge)}`}>
@@ -131,21 +167,21 @@ function OrderCard({
         <div className="mb-3 grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-2.5 text-center">
           <div>
             <p className="text-[10px] text-slate-400 uppercase tracking-wide">Previous</p>
-            <p className="text-sm font-bold text-slate-700">{line.PreviousQty} {line.unit}</p>
+            <p className="text-sm font-bold text-slate-700">{line.PreviousQty} {unit}</p>
           </div>
           <div>
             <p className="text-[10px] text-slate-400 uppercase tracking-wide">Avg / Week</p>
-            <p className="text-sm font-bold text-slate-700">{line.lastWeekAvg} {line.unit}</p>
+            <p className="text-sm font-bold text-slate-700">{line.lastWeekAvg} {unit}</p>
           </div>
           <div>
             <p className="text-[10px] text-indigo-500 uppercase tracking-wide font-semibold">Suggested</p>
-            <p className="text-sm font-bold text-indigo-600">{line.suggestedQty} {line.unit}</p>
+            <p className="text-sm font-bold text-indigo-600">{line.suggestedQty} {unit}</p>
           </div>
         </div>
 
         {/* Qty input */}
         <div className="mb-3">
-          <label className="mb-1 block text-xs font-semibold text-slate-600">Today's Order Qty ({line.unit})</label>
+          <label className="mb-1 block text-xs font-semibold text-slate-600">Today's Order Qty ({unit})</label>
           <div className="flex items-center gap-2">
             <button
               onClick={() => onChange(line.product, Math.max(0, line.qty - 1), line.priority)}
@@ -191,15 +227,30 @@ function OrderCard({
 
 export function ProductCatalogPage() {
   const navigate = useNavigate();
-  const { addToCart, cartItems, updateQty, removeItem } = useCart();
+  const { addToCart, cartItems, setQty, removeItem } = useCart();
   const [category, setCategory] = useState("All");
+  const activeProducts = useActiveProducts();
   const [orderLines, setOrderLines] = useState<Record<string, OrderLine>>(() => {
     const map: Record<string, OrderLine> = {};
-    BRANCH_ORDER_INTELLIGENCE.forEach(i => {
+    activeProducts.forEach(i => {
       map[i.product] = { ...i, qty: 0, priority: "Normal" };
     });
     return map;
   });
+
+  // Sync orderLines when new products are approved dynamically
+  useMemo(() => {
+    setOrderLines(prev => {
+      const next = { ...prev };
+      activeProducts.forEach(i => {
+        if (!next[i.product]) {
+          next[i.product] = { ...i, qty: 0, priority: "Normal" };
+        }
+      });
+      return next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProducts]);
 
   function handleChange(product: string, qty: number, priority: Priority) {
     setOrderLines(prev => ({ ...prev, [product]: { ...prev[product], qty, priority } }));
@@ -207,18 +258,17 @@ export function ProductCatalogPage() {
     if (qty === 0) {
       if (existing) removeItem(existing.id);
     } else if (existing) {
-      const diff = qty - existing.quantity;
-      if (diff !== 0) updateQty(existing.id, diff);
+      setQty(existing.id, qty);
     } else {
-      addToCart({ id: product, name: product, price: 680 });
+      addToCart({ id: product, name: product, price: 680 }, qty);
     }
   }
 
   const filtered = useMemo(() => {
-    return BRANCH_ORDER_INTELLIGENCE.filter(i =>
-      category === "All" ? true : (PRODUCT_CATEGORIES[i.product] ?? "General") === category
+    return activeProducts.filter(i =>
+      category === "All" ? true : (PRODUCT_CATEGORY_MAP[i.product] ?? "General") === category
     );
-  }, [category]);
+  }, [category, activeProducts]);
 
   const orderedLines = Object.values(orderLines).filter(l => l.qty > 0);
   const totalQty = orderedLines.reduce((s, l) => s + l.qty, 0);
@@ -270,8 +320,8 @@ export function ProductCatalogPage() {
           <div className="space-y-1">
             {CATEGORIES.map(cat => {
               const count = cat === "All"
-                ? BRANCH_ORDER_INTELLIGENCE.length
-                : BRANCH_ORDER_INTELLIGENCE.filter(i => (PRODUCT_CATEGORIES[i.product] ?? "General") === cat).length;
+                ? activeProducts.length
+                : activeProducts.filter(i => (PRODUCT_CATEGORY_MAP[i.product] ?? "General") === cat).length;
               return (
                 <button key={cat} onClick={() => setCategory(cat)}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm ${category === cat ? "bg-[#E9EDFF] font-semibold text-[#0B2C66]" : "text-slate-600 hover:bg-slate-50"}`}>

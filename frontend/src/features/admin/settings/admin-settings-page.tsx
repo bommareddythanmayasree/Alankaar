@@ -7,7 +7,6 @@ const ADMIN_SIDEBAR = [
   "Employee Management",
   "Branch Management",
   "Products Analytics",
-  "Inventory Analytics",
   "Revenue Analytics",
   "Order Analytics",
   "AI Recommendations",

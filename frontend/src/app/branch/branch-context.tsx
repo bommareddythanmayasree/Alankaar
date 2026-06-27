@@ -16,8 +16,9 @@ export type CartItem = {
 
 type CartContextValue = {
   cartItems: CartItem[];
-  addToCart: (product: { id: string; name: string; price: number }) => void;
+  addToCart: (product: { id: string; name: string; price: number }, quantity?: number) => void;
   updateQty: (id: string, delta: number) => void;
+  setQty: (id: string, qty: number) => void;
   removeItem: (id: string) => void;
   clearCart: () => void;
 };
@@ -173,12 +174,12 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
     });
   }, [registerBranchStatusUpdater]);
 
-  const addToCart = useCallback((product: { id: string; name: string; price: number }) => {
+  const addToCart = useCallback((product: { id: string; name: string; price: number }, quantity = 1) => {
     setCartItems((prev) => {
       const existing = prev.find((i) => i.id === product.id);
       if (existing) {
         return prev.map((i) =>
-          i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i
+          i.id === product.id ? { ...i, quantity } : i
         );
       }
       return [
@@ -187,7 +188,7 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
           id: product.id,
           name: product.name,
           price: product.price,
-          quantity: 1,
+          quantity,
           image: getProductImage(product.name),
         },
       ];
@@ -198,6 +199,14 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
     setCartItems((prev) =>
       prev.map((item) =>
         item.id === id ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item
+      )
+    );
+  }, []);
+
+  const setQty = useCallback((id: string, qty: number) => {
+    setCartItems((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, quantity: Math.max(1, qty) } : item
       )
     );
   }, []);
@@ -325,7 +334,7 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <CartContext.Provider value={{ cartItems, addToCart, updateQty, removeItem, clearCart }}>
+    <CartContext.Provider value={{ cartItems, addToCart, updateQty, setQty, removeItem, clearCart }}>
       <OrderContext.Provider value={{ orders, placeOrder, payOrder }}>
         <CatalogContext.Provider value={{ catalogProducts }}>
           {children}

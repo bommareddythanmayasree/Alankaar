@@ -6,6 +6,7 @@ import { useWarehouse, type StockItem, type StockStatus } from "../../../app/war
 import { PRODUCT_IMAGE_MAP, getProductImage } from "../../../shared/utils/product-images";
 import type { StockCategory } from "../../../shared/data/warehouse-mock-data";
 import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 type FormState = Omit<StockItem, "id">;
 
@@ -236,8 +237,8 @@ export function WarehouseStockManagementPage() {
                     <td className="px-3 py-3">{row.category}</td>
                     <td className="px-3 py-3 font-medium">{row.currentStock} {row.unit}</td>
                     <td className="px-3 py-3 text-slate-500">{row.minimumStock} / {row.maximumStock}</td>
-                    <td className="px-3 py-3">&#8377;{row.costPrice}</td>
-                    <td className="px-3 py-3">&#8377;{row.sellingPrice}</td>
+                    <td className="px-3 py-3">{formatCurrency(row.costPrice)}</td>
+                    <td className="px-3 py-3">{formatCurrency(row.sellingPrice)}</td>
                     <td className="px-3 py-3 text-slate-700">{row.performedBy}</td>
                     <td className="px-3 py-3 text-slate-600">{row.expiryDate}</td>
                     <td className="px-3 py-3">
@@ -402,10 +403,10 @@ export function WarehouseStockManagementPage() {
               <Field label="Unit">
                 <input className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.unit} onChange={(e) => setForm((s) => ({ ...s, unit: e.target.value }))} />
               </Field>
-              <Field label="Cost Price (Rs.)">
+              <Field label="Cost Price (₹)">
                 <input type="number" className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.costPrice} onChange={(e) => setForm((s) => ({ ...s, costPrice: Number(e.target.value) }))} />
               </Field>
-              <Field label="Selling Price (Rs.)">
+              <Field label="Selling Price (₹)">
                 <input type="number" className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]" value={form.sellingPrice} onChange={(e) => setForm((s) => ({ ...s, sellingPrice: Number(e.target.value) }))} />
               </Field>
               <Field label="Batch Number">
@@ -454,8 +455,8 @@ export function WarehouseStockManagementPage() {
               <Detail label="Current Stock" value={`${viewing.currentStock} ${viewing.unit}`} />
               <Detail label="Minimum Stock" value={`${viewing.minimumStock}`} />
               <Detail label="Maximum Stock" value={`${viewing.maximumStock}`} />
-              <Detail label="Cost Price" value={`Rs.${viewing.costPrice}`} />
-              <Detail label="Selling Price" value={`Rs.${viewing.sellingPrice}`} />
+              <Detail label="Cost Price" value={formatCurrency(viewing.costPrice)} />
+              <Detail label="Selling Price" value={formatCurrency(viewing.sellingPrice)} />
               <Detail label="Performed By" value={viewing.performedBy} />
               <Detail label="Supplier" value={viewing.supplier} />
               <Detail label="Batch Number" value={viewing.batchNumber} />

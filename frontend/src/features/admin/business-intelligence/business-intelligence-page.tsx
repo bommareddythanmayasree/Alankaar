@@ -62,8 +62,8 @@ export function BusinessIntelligencePage() {
               <LineChart data={DEMO_DEMAND_TREND} margin={{ left: 0, right: 8 }}>
                 <CartesianGrid stroke="#EEF2F7" />
                 <XAxis dataKey="day" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `?${(v/1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v: unknown) => `?${Number(v).toLocaleString("en-IN")}`} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
+                <Tooltip formatter={(v: unknown) => `₹${Number(v).toLocaleString("en-IN")}`} />
                 <Legend />
                 <Line dataKey="requested" name="Requested" stroke="#6366f1" strokeWidth={2} dot={{ r: 4 }} />
                 <Line dataKey="delivered" name="Delivered" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
@@ -86,9 +86,9 @@ export function BusinessIntelligencePage() {
                 { branch: "Machavaram", collected: 680, outstanding: 680 },
               ]} layout="vertical" margin={{ left: 80 }}>
                 <CartesianGrid horizontal={false} stroke="#EEF2F7" />
-                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => `?${(v/1000).toFixed(0)}k`} />
+                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
                 <YAxis type="category" dataKey="branch" tick={{ fontSize: 11 }} width={90} />
-                <Tooltip formatter={(v: unknown) => `?${Number(v).toLocaleString("en-IN")}`} />
+                <Tooltip formatter={(v: unknown) => `₹${Number(v).toLocaleString("en-IN")}`} />
                 <Legend />
                 <Bar dataKey="collected" name="Collected" fill="#10b981" radius={[0, 4, 4, 0]} />
                 <Bar dataKey="outstanding" name="Outstanding" fill="#f97316" radius={[0, 4, 4, 0]} />

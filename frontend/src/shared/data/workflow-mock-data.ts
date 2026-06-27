@@ -1,5 +1,5 @@
-﻿// ============================================================
-// WORKFLOW MOCK DATA --- Connected Branchâ†’Warehouseâ†’Production flow
+// ============================================================
+// WORKFLOW MOCK DATA --- Connected Branch→Warehouse→Production flow
 // All 5 Phase-1 requirements share this single data source.
 // ============================================================
 
@@ -39,10 +39,13 @@ export type WorkflowOrder = {
   value: number;
   status: WorkflowStatus;
   items: WorkflowOrderItem[];
+  invoiceNumber?: string;
+  deliveredDate?: string;
+  deliveredTime?: string;
 };
 
 export const WORKFLOW_ORDERS: WorkflowOrder[] = [
-  // ── Order Placed ─────────────────────────────────────────────────────────
+  // -- Order Placed ---------------------------------------------------------
   {
     id: "ORD-2026-007",
     branch: "Gunadala",
@@ -69,7 +72,7 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
       { product: "Milk Cake",       orderedQty: 3, approvedQty: 0, rejectedQty: 0, unit: "Kg" },
     ],
   },
-  // ── Under Review ─────────────────────────────────────────────────────────
+  // -- Under Review ---------------------------------------------------------
   {
     id: "ORD-2026-005",
     branch: "Gannavaram",
@@ -92,11 +95,11 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
     value: 6750,
     status: "Under Review",
     items: [
-      { product: "Milk Bread", orderedQty: 120, approvedQty: 0, rejectedQty: 0, unit: "pcs" },
-      { product: "Veg Puff",   orderedQty: 80,  approvedQty: 0, rejectedQty: 0, unit: "pcs" },
+      { product: "Milk Bread", orderedQty: 120, approvedQty: 0, rejectedQty: 0, unit: "Units" },
+      { product: "Veg Puff",   orderedQty: 80,  approvedQty: 0, rejectedQty: 0, unit: "Pcs" },
     ],
   },
-  // ── Approved ─────────────────────────────────────────────────────────────
+  // -- Approved -------------------------------------------------------------
   {
     id: "ORD-2026-004",
     branch: "Ayappa Nagar",
@@ -111,7 +114,7 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
       { product: "Milk Cake",  orderedQty: 6,  approvedQty: 4,  rejectedQty: 2, unit: "Kg" },
     ],
   },
-  // ── Added To Production ───────────────────────────────────────────────────
+  // -- Added To Production ---------------------------------------------------
   {
     id: "ORD-2026-003",
     branch: "Gayatri Nagar",
@@ -125,7 +128,7 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
       { product: "Dry Fruit Laddu", orderedQty: 4, approvedQty: 4, rejectedQty: 0, unit: "Kg" },
     ],
   },
-  // ── Production Started ────────────────────────────────────────────────────
+  // -- Production Started ----------------------------------------------------
   {
     id: "ORD-2026-002",
     branch: "Gandhi Nagar",
@@ -137,7 +140,7 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
     items: [
       { product: "Kaju Katli",  orderedQty: 8,  approvedQty: 8,  rejectedQty: 0, unit: "Kg" },
       { product: "Gulab Jamun", orderedQty: 12, approvedQty: 12, rejectedQty: 0, unit: "Kg" },
-      { product: "Milk Bread",  orderedQty: 80, approvedQty: 80, rejectedQty: 0, unit: "pcs" },
+      { product: "Milk Bread",  orderedQty: 80, approvedQty: 80, rejectedQty: 0, unit: "Units" },
     ],
   },
   {
@@ -153,7 +156,7 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
       { product: "Milk Cake", orderedQty: 5,  approvedQty: 5,  rejectedQty: 0, unit: "Kg" },
     ],
   },
-  // ── Production Completed ──────────────────────────────────────────────────
+  // -- Production Completed --------------------------------------------------
   {
     id: "ORD-2026-010",
     branch: "Kanuru",
@@ -167,7 +170,7 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
       { product: "Gulab Jamun", orderedQty: 8,  approvedQty: 8,  rejectedQty: 0, unit: "Kg" },
     ],
   },
-  // ── Ready For Dispatch ────────────────────────────────────────────────────
+  // -- Ready For Dispatch ----------------------------------------------------
   {
     id: "ORD-2026-001",
     branch: "Benz Circle",
@@ -195,7 +198,7 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
       { product: "Kaju Katli",      orderedQty: 4, approvedQty: 4, rejectedQty: 0, unit: "Kg" },
     ],
   },
-  // ── Morning Dispatch ──────────────────────────────────────────────────────
+  // -- Morning Dispatch ------------------------------------------------------
   {
     id: "ORD-2026-012",
     branch: "Gunadala",
@@ -205,11 +208,11 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
     value: 4600,
     status: "Morning Dispatch",
     items: [
-      { product: "Milk Bread", orderedQty: 100, approvedQty: 100, rejectedQty: 0, unit: "pcs" },
-      { product: "Veg Puff",   orderedQty: 60,  approvedQty: 60,  rejectedQty: 0, unit: "pcs" },
+      { product: "Milk Bread", orderedQty: 100, approvedQty: 100, rejectedQty: 0, unit: "Units" },
+      { product: "Veg Puff",   orderedQty: 60,  approvedQty: 60,  rejectedQty: 0, unit: "Pcs" },
     ],
   },
-  // ── Evening Dispatch ──────────────────────────────────────────────────────
+  // -- Evening Dispatch ------------------------------------------------------
   {
     id: "ORD-2026-013",
     branch: "Machavaram",
@@ -223,7 +226,7 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
       { product: "Rasgulla",    orderedQty: 8,  approvedQty: 8,  rejectedQty: 0, unit: "Kg" },
     ],
   },
-  // ── In Transit ───────────────────────────────────────────────────────────
+  // -- In Transit -----------------------------------------------------------
   {
     id: "ORD-2026-014",
     branch: "Governorpet",
@@ -250,7 +253,7 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
       { product: "Gulab Jamun", orderedQty: 6, approvedQty: 6, rejectedQty: 0, unit: "Kg" },
     ],
   },
-  // ── Delivered (awaiting invoice) ─────────────────────────────────────────
+  // -- Delivered (in transit, awaiting delivery confirmation) -----------------------------------------
   {
     id: "ORD-2026-016",
     branch: "Gandhi Nagar",
@@ -258,11 +261,11 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
     time: "05:30 AM",
     priority: "Normal",
     value: 11200,
-    status: "Delivered",
+    status: "In Transit",
     items: [
       { product: "Kalakand",   orderedQty: 12, approvedQty: 12, rejectedQty: 0, unit: "Kg" },
       { product: "Rasgulla",   orderedQty: 10, approvedQty: 10, rejectedQty: 0, unit: "Kg" },
-      { product: "Milk Bread", orderedQty: 60, approvedQty: 60, rejectedQty: 0, unit: "pcs" },
+      { product: "Milk Bread", orderedQty: 60, approvedQty: 60, rejectedQty: 0, unit: "Units" },
     ],
   },
   {
@@ -272,7 +275,7 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
     time: "05:45 AM",
     priority: "Urgent",
     value: 8900,
-    status: "Delivered",
+    status: "In Transit",
     items: [
       { product: "Kaju Katli",  orderedQty: 8, approvedQty: 7, rejectedQty: 1, unit: "Kg" },
       { product: "Gulab Jamun", orderedQty: 6, approvedQty: 6, rejectedQty: 0, unit: "Kg" },
@@ -285,13 +288,13 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
     time: "06:00 AM",
     priority: "Normal",
     value: 7600,
-    status: "Delivered",
+    status: "In Transit",
     items: [
       { product: "Dry Fruit Laddu", orderedQty: 8, approvedQty: 8, rejectedQty: 0, unit: "Kg" },
       { product: "Milk Cake",       orderedQty: 5, approvedQty: 5, rejectedQty: 0, unit: "Kg" },
     ],
   },
-  // ── Invoice Generated ─────────────────────────────────────────────────────
+  // -- Payment Pending (invoice auto-generated on delivery) -----------------------------------------
   {
     id: "ORD-2026-019",
     branch: "Benz Circle",
@@ -300,12 +303,15 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
     priority: "Normal",
     value: 9400,
     status: "Invoice Generated",
+    invoiceNumber: "INV-2026-1001",
+    deliveredDate: "Jun 21, 2026",
+    deliveredTime: "07:20 AM",
     items: [
       { product: "Kalakand",  orderedQty: 10, approvedQty: 10, rejectedQty: 0, unit: "Kg" },
       { product: "Milk Cake", orderedQty: 6,  approvedQty: 6,  rejectedQty: 0, unit: "Kg" },
     ],
   },
-  // ── Payment Pending ───────────────────────────────────────────────────────
+  // -- Payment Pending -------------------------------------------------------
   {
     id: "ORD-2026-020",
     branch: "Gannavaram",
@@ -314,6 +320,9 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
     priority: "Normal",
     value: 6800,
     status: "Payment Pending",
+    invoiceNumber: "INV-2026-1002",
+    deliveredDate: "Jun 21, 2026",
+    deliveredTime: "07:55 AM",
     items: [
       { product: "Rasgulla",    orderedQty: 10, approvedQty: 9, rejectedQty: 1, unit: "Kg" },
       { product: "Gulab Jamun", orderedQty: 7,  approvedQty: 7, rejectedQty: 0, unit: "Kg" },
@@ -327,12 +336,15 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
     priority: "Normal",
     value: 4900,
     status: "Payment Pending",
+    invoiceNumber: "INV-2026-1003",
+    deliveredDate: "Jun 21, 2026",
+    deliveredTime: "08:45 AM",
     items: [
       { product: "Kaju Katli", orderedQty: 4, approvedQty: 4, rejectedQty: 0, unit: "Kg" },
-      { product: "Milk Bread", orderedQty: 80, approvedQty: 80, rejectedQty: 0, unit: "pcs" },
+      { product: "Milk Bread", orderedQty: 80, approvedQty: 80, rejectedQty: 0, unit: "Units" },
     ],
   },
-  // ── Payment Completed ─────────────────────────────────────────────────────
+  // -- Order Closed (auto-closed when payment completed) --------------------
   {
     id: "ORD-2026-022",
     branch: "Gandhi Nagar",
@@ -340,11 +352,14 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
     time: "07:30 AM",
     priority: "Normal",
     value: 9800,
-    status: "Payment Completed",
+    status: "Order Closed",
+    invoiceNumber: "INV-2026-1004",
+    deliveredDate: "Jun 20, 2026",
+    deliveredTime: "09:10 AM",
     items: [
       { product: "Kaju Katli",  orderedQty: 8,  approvedQty: 8,  rejectedQty: 0, unit: "Kg" },
       { product: "Gulab Jamun", orderedQty: 12, approvedQty: 12, rejectedQty: 0, unit: "Kg" },
-      { product: "Milk Bread",  orderedQty: 80, approvedQty: 80, rejectedQty: 0, unit: "pcs" },
+      { product: "Milk Bread",  orderedQty: 80, approvedQty: 80, rejectedQty: 0, unit: "Units" },
     ],
   },
   {
@@ -354,13 +369,16 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
     time: "07:00 AM",
     priority: "Normal",
     value: 5600,
-    status: "Payment Completed",
+    status: "Order Closed",
+    invoiceNumber: "INV-2026-1005",
+    deliveredDate: "Jun 20, 2026",
+    deliveredTime: "09:45 AM",
     items: [
       { product: "Kalakand",  orderedQty: 6, approvedQty: 6, rejectedQty: 0, unit: "Kg" },
       { product: "Milk Cake", orderedQty: 4, approvedQty: 4, rejectedQty: 0, unit: "Kg" },
     ],
   },
-  // ── Order Closed ──────────────────────────────────────────────────────────
+  // -- Order Closed ----------------------------------------------------------
   {
     id: "ORD-2026-024",
     branch: "Ayappa Nagar",
@@ -369,6 +387,9 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
     priority: "Normal",
     value: 7200,
     status: "Order Closed",
+    invoiceNumber: "INV-2026-1006",
+    deliveredDate: "Jun 20, 2026",
+    deliveredTime: "10:15 AM",
     items: [
       { product: "Dry Fruit Laddu", orderedQty: 6, approvedQty: 6, rejectedQty: 0, unit: "Kg" },
       { product: "Rasgulla",        orderedQty: 8, approvedQty: 8, rejectedQty: 0, unit: "Kg" },
@@ -376,7 +397,7 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
   },
 ];
 
-// â”€â”€ Production Requirement aggregation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Production Requirement aggregation ────────────────────────────────────────
 // Totals across all approved orders for today's production plan.
 export type ProductionLifecycleStage =
   | "Planning"
@@ -580,7 +601,7 @@ export const PRODUCTION_BATCHES: ProductionBatch[] = [
       { product: "Milk Cake",   requiredQty: 25, preparedQty: 25, pendingQty: 0,  unit: "Kg",  prodStatus: "Completed" },
       { product: "Rasgulla",    requiredQty: 58, preparedQty: 58, pendingQty: 0,  unit: "Kg",  prodStatus: "Ready For Dispatch" },
       { product: "Gulab Jamun", requiredQty: 48, preparedQty: 48, pendingQty: 0,  unit: "Kg",  prodStatus: "Ready For Dispatch" },
-      { product: "Milk Bread",  requiredQty: 200, preparedQty: 200, pendingQty: 0, unit: "pcs", prodStatus: "Completed" },
+      { product: "Milk Bread",  requiredQty: 200, preparedQty: 200, pendingQty: 0, unit: "Units", prodStatus: "Completed" },
     ],
   },
   {
@@ -596,7 +617,7 @@ export const PRODUCTION_BATCHES: ProductionBatch[] = [
   },
 ];
 
-// â”€â”€ Dashboard workflow KPIs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Dashboard workflow KPIs ────────────────────────────────────────────────────
 export const WORKFLOW_DASHBOARD_KPI = {
   todaysOrders: 24,
   pendingApprovals: 8,
@@ -608,26 +629,7 @@ export const WORKFLOW_DASHBOARD_KPI = {
   paymentPending: 2,
 };
 
-// â”€â”€ Operations Command Center â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-export const OPS_COMMAND_CENTER = {
-  totalOrders: 24,
-  totalProduction: "275 Kg",
-  morningDispatch: 12,
-  eveningDispatch: 9,
-  collections: "₹42,000",
-  outstanding: "₹18,500",
-  urgentOrders: 4,
-};
-
-// â”€â”€ Urgent Orders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-export const URGENT_ORDERS_DASHBOARD = [
-  { orderId: "ORD-2026-001", branch: "Benz Circle",    product: "Kalakand",   qty: 10, unit: "Kg",  requiredBefore: "10:00 AM" },
-  { orderId: "ORD-2026-004", branch: "Ayyappa Nagar",  product: "Kaju Katli", qty: 12, unit: "Kg",  requiredBefore: "11:00 AM" },
-  { orderId: "ORD-2026-004", branch: "Ayyappa Nagar",  product: "Kalakand",   qty: 8,  unit: "Kg",  requiredBefore: "11:00 AM" },
-  { orderId: "ORD-2026-009", branch: "Patamata",       product: "Milk Cake",  qty: 6,  unit: "Kg",  requiredBefore: "12:00 PM" },
-];
-
-// â”€â”€ Production Demand Aggregator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Production Demand Aggregator ──────────────────────────────────────────────
 export type ProductionDemandItem = {
   product: string;
   totalKg: number;
@@ -695,10 +697,31 @@ export const PRODUCTION_DEMAND: ProductionDemandItem[] = [
   },
 ];
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ── Urgent Orders ─────────────────────────────────────────────────────────────
+export const URGENT_ORDERS_DASHBOARD = [
+  { orderId: "ORD-2026-001", branch: "Benz Circle",    product: "Kalakand",   qty: 10, unit: "Kg",  requiredBefore: "10:00 AM" },
+  { orderId: "ORD-2026-004", branch: "Ayyappa Nagar",  product: "Kaju Katli", qty: 12, unit: "Kg",  requiredBefore: "11:00 AM" },
+  { orderId: "ORD-2026-004", branch: "Ayyappa Nagar",  product: "Kalakand",   qty: 8,  unit: "Kg",  requiredBefore: "11:00 AM" },
+  { orderId: "ORD-2026-009", branch: "Patamata",       product: "Milk Cake",  qty: 6,  unit: "Kg",  requiredBefore: "12:00 PM" },
+];
+
+// ── Operations Command Center ─────────────────────────────────────────────────
+export const OPS_COMMAND_CENTER = {
+  totalOrders: 24,
+  get totalProduction() {
+    return `${PRODUCTION_DEMAND.reduce((sum, p) => sum + p.totalKg, 0)} Kg`;
+  },
+  morningDispatch: 12,
+  eveningDispatch: 9,
+  collections: 242000,
+  outstanding: 18500,
+  urgentOrders: 4,
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
 // BRANCH PORTAL PHASE-2 --- My Orders enriched data
 // Same orders as warehouse workflow --- branch views same lifecycle.
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════════
 
 export type BranchOrderLifecycle =
   | "Order Placed"
@@ -767,9 +790,13 @@ export type BranchOrderDetail = {
   deliveries: DeliveryLine[];
   paymentHistory: PaymentHistoryEntry[];
   timelineEvents: { label: BranchOrderLifecycle; timestamp: string; done: boolean; current: boolean }[];
+  // Advance order metadata
+  isAdvanceOrder?: boolean;
+  occasion?: string;
+  deliveryDate?: string;
 };
 
-// â”€â”€ All lifecycle steps â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── All lifecycle steps ───────────────────────────────────────────────────────
 export const ALL_STEPS: BranchOrderLifecycle[] = [
   "Order Placed", "Warehouse Review", "Approved", "Added To Production",
   "Production Started", "Production Completed", "Ready For Dispatch",
@@ -787,9 +814,9 @@ function buildTimeline(current: BranchOrderLifecycle, timestamps: Partial<Record
   }));
 }
 
-// â”€â”€ Branch My Orders --- 6 real business scenarios â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Branch My Orders --- 6 real business scenarios ──────────────────────────────
 export const BRANCH_MY_ORDERS: BranchOrderDetail[] = [
-  // â”€â”€ 1. READY FOR DISPATCH (urgent, Benz Circle = ORD-2026-001) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── 1. READY FOR DISPATCH (urgent, Benz Circle = ORD-2026-001) ────────────
   {
     orderId: "ORD-2026-001",
     branch: "Benz Circle",
@@ -836,7 +863,7 @@ export const BRANCH_MY_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // â”€â”€ 2. FULLY DELIVERED + PAYMENT COMPLETED (Gandhi Nagar = ORD-2026-002) â”€â”€
+  // ── 2. FULLY DELIVERED + PAYMENT COMPLETED (Gandhi Nagar = ORD-2026-002) ──
   {
     orderId: "ORD-2026-002",
     branch: "Gandhi Nagar",
@@ -856,20 +883,20 @@ export const BRANCH_MY_ORDERS: BranchOrderDetail[] = [
     items: [
       { product: "Kaju Katli",  orderedQty: 8,  approvedQty: 8,  rejectedQty: 0, unit: "Kg" },
       { product: "Gulab Jamun", orderedQty: 12, approvedQty: 12, rejectedQty: 0, unit: "Kg" },
-      { product: "Milk Bread",  orderedQty: 80, approvedQty: 80, rejectedQty: 0, unit: "pcs" },
+      { product: "Milk Bread",  orderedQty: 80, approvedQty: 80, rejectedQty: 0, unit: "Units" },
     ],
     dispatches: [
       {
         slot: "Morning", time: "08:00 AM", representative: "Venkat Reddy",
         vehicle: "AP 29 CR 1190",
-        products: [{ name: "Kaju Katli", qty: 8, unit: "Kg" }, { name: "Gulab Jamun", qty: 12, unit: "Kg" }, { name: "Milk Bread", qty: 80, unit: "pcs" }],
+        products: [{ name: "Kaju Katli", qty: 8, unit: "Kg" }, { name: "Gulab Jamun", qty: 12, unit: "Kg" }, { name: "Milk Bread", qty: 80, unit: "Units" }],
         status: "Delivered",
       },
     ],
     deliveries: [
       { product: "Kaju Katli",  orderedQty: 8,  deliveredQty: 8,  receivedQty: 7.9, differenceQty: 0.1, unit: "Kg", reason: "Weight variation" },
       { product: "Gulab Jamun", orderedQty: 12, deliveredQty: 12, receivedQty: 12,  differenceQty: 0,   unit: "Kg" },
-      { product: "Milk Bread",  orderedQty: 80, deliveredQty: 80, receivedQty: 80,  differenceQty: 0,   unit: "pcs" },
+      { product: "Milk Bread",  orderedQty: 80, deliveredQty: 80, receivedQty: 80,  differenceQty: 0,   unit: "Units" },
     ],
     paymentHistory: [
       { date: "Jun 17, 2026", amount: 9800, method: "UPI", reference: "UPI202606170201", status: "Completed" },
@@ -888,7 +915,7 @@ export const BRANCH_MY_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // â”€â”€ 3. PARTIAL DELIVERY + PAYMENT PENDING (Gayatri Nagar = ORD-2026-003) â”€â”€
+  // ── 3. PARTIAL DELIVERY + PAYMENT PENDING (Gayatri Nagar = ORD-2026-003) ──
   {
     orderId: "ORD-2026-003",
     branch: "Gayatri Nagar",
@@ -935,7 +962,7 @@ export const BRANCH_MY_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // â”€â”€ 4. PRODUCTION STARTED + URGENT (Ayyappa Nagar = ORD-2026-004) â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── 4. PRODUCTION STARTED + URGENT (Ayyappa Nagar = ORD-2026-004) ─────────
   {
     orderId: "ORD-2026-004",
     branch: "Ayyappa Nagar",
@@ -968,7 +995,7 @@ export const BRANCH_MY_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // â”€â”€ 5. FESTIVAL ADVANCE ORDER (Gunadala = ORD-2026-007) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── 5. FESTIVAL ADVANCE ORDER (Gunadala = ORD-2026-007) ───────────────────
   {
     orderId: "ORD-2026-007",
     branch: "Gunadala",
@@ -997,7 +1024,7 @@ export const BRANCH_MY_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // â”€â”€ 6. DELIVERED PARTIAL + PAYMENT PENDING (Gannavaram = ORD-2026-005) â”€â”€â”€â”€
+  // ── 6. DELIVERED PARTIAL + PAYMENT PENDING (Gannavaram = ORD-2026-005) ────
   {
     orderId: "ORD-2026-005",
     branch: "Gannavaram",
@@ -1043,7 +1070,7 @@ export const BRANCH_MY_ORDERS: BranchOrderDetail[] = [
   },
 ];
 
-// â”€â”€ Per-item production status visible to branch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Per-item production status visible to branch ──────────────────────────────
 export type BranchProductionStatus = {
   product: string;
   status: "Awaiting Production" | "In Production" | "Completed" | "Ready For Dispatch";
@@ -1068,20 +1095,21 @@ export const BRANCH_PRODUCTION_STATUS: Record<string, BranchProductionStatus[]> 
   ],
 };
 
-// â”€â”€ Branch dashboard workflow KPI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Branch dashboard workflow KPI ─────────────────────────────────────────────
 export const BRANCH_WORKFLOW_KPI = {
   todaysOrders: 6,
   inProduction: 2,
   readyForDispatch: 1,
   pendingDeliveries: 1,
-  outstandingPayments: "₹19,990",
+  outstandingPayments: "?19,990",
   advanceOrders: 1,
 };
 
-// ── Branch Order Intelligence — per-product history hints shown in Place Order ──
+// -- Branch Order Intelligence � per-product history hints shown in Place Order --
 export type OrderIntelligence = {
   product: string;
   unit: string;
+  price: number; // selling price per unit (used for estimated value calculations)
   PreviousQty: number;
   lastWeekAvg: number;
   suggestedQty: number;
@@ -1089,37 +1117,64 @@ export type OrderIntelligence = {
 };
 
 export const BRANCH_ORDER_INTELLIGENCE: OrderIntelligence[] = [
-  { product: "Kalakand",        unit: "Kg",  PreviousQty: 8,   lastWeekAvg: 7,   suggestedQty: 10 },
-  { product: "Milk Cake",       unit: "Kg",  PreviousQty: 4,   lastWeekAvg: 4,   suggestedQty: 5 },
-  { product: "Kaju Katli",      unit: "Kg",  PreviousQty: 6,   lastWeekAvg: 5,   suggestedQty: 8,  badge: "Festival Order" },
-  { product: "Rasgulla",        unit: "Kg",  PreviousQty: 10,  lastWeekAvg: 9,   suggestedQty: 12 },
-  { product: "Gulab Jamun",     unit: "Kg",  PreviousQty: 8,   lastWeekAvg: 8,   suggestedQty: 10 },
-  { product: "Dry Fruit Laddu", unit: "Kg",  PreviousQty: 3,   lastWeekAvg: 3,   suggestedQty: 4 },
-  { product: "Mysore Pak",      unit: "Kg",  PreviousQty: 2,   lastWeekAvg: 2,   suggestedQty: 3 },
-  { product: "Milk Bread",      unit: "pcs", PreviousQty: 80,  lastWeekAvg: 75,  suggestedQty: 100, badge: "Weekend Demand" },
-  { product: "Veg Puff",        unit: "pcs", PreviousQty: 60,  lastWeekAvg: 55,  suggestedQty: 80 },
-  { product: "Egg Puff",        unit: "pcs", PreviousQty: 40,  lastWeekAvg: 38,  suggestedQty: 50 },
-  { product: "Cream Roll",      unit: "pcs", PreviousQty: 30,  lastWeekAvg: 28,  suggestedQty: 40 },
-  { product: "Samosa",          unit: "pcs", PreviousQty: 50,  lastWeekAvg: 45,  suggestedQty: 60 },
-  { product: "Boondi Laddu",    unit: "Kg",  PreviousQty: 3,   lastWeekAvg: 3,   suggestedQty: 4,  badge: "Festival Order" },
-  { product: "Motichoor Laddu", unit: "Kg",  PreviousQty: 4,   lastWeekAvg: 3,   suggestedQty: 5 },
-  { product: "Badam Milk",      unit: "ltr", PreviousQty: 10,  lastWeekAvg: 10,  suggestedQty: 12 },
-  { product: "Tea",             unit: "ltr", PreviousQty: 20,  lastWeekAvg: 18,  suggestedQty: 25 },
-  { product: "Coffee",          unit: "ltr", PreviousQty: 15,  lastWeekAvg: 14,  suggestedQty: 18 },
-  { product: "Apple Juice",     unit: "ltr", PreviousQty: 6,   lastWeekAvg: 5,   suggestedQty: 8 },
-  { product: "Lassi",           unit: "ltr", PreviousQty: 8,   lastWeekAvg: 7,   suggestedQty: 10 },
-  { product: "Brown Bread",     unit: "pcs", PreviousQty: 40,  lastWeekAvg: 38,  suggestedQty: 50 },
+  // Sweets ? Kg
+  { product: "Kalakand",          unit: "Kg",    price: 520,  PreviousQty: 8,   lastWeekAvg: 7,   suggestedQty: 10 },
+  { product: "Milk Cake",         unit: "Kg",    price: 600,  PreviousQty: 4,   lastWeekAvg: 4,   suggestedQty: 5 },
+  { product: "Kaju Katli",        unit: "Kg",    price: 680,  PreviousQty: 6,   lastWeekAvg: 5,   suggestedQty: 8,  badge: "Festival Order" },
+  { product: "Rasgulla",          unit: "Kg",    price: 280,  PreviousQty: 10,  lastWeekAvg: 9,   suggestedQty: 12 },
+  { product: "Gulab Jamun",       unit: "Kg",    price: 260,  PreviousQty: 8,   lastWeekAvg: 8,   suggestedQty: 10 },
+  { product: "Dry Fruit Laddu",   unit: "Kg",    price: 560,  PreviousQty: 3,   lastWeekAvg: 3,   suggestedQty: 4 },
+  { product: "Mysore Pak",        unit: "Kg",    price: 480,  PreviousQty: 2,   lastWeekAvg: 2,   suggestedQty: 3 },
+  { product: "Boondi Laddu",      unit: "Kg",    price: 340,  PreviousQty: 3,   lastWeekAvg: 3,   suggestedQty: 4,  badge: "Festival Order" },
+  { product: "Motichoor Laddu",   unit: "Kg",    price: 380,  PreviousQty: 4,   lastWeekAvg: 3,   suggestedQty: 5 },
+  { product: "Rasmalai",          unit: "Kg",    price: 320,  PreviousQty: 3,   lastWeekAvg: 3,   suggestedQty: 4 },
+  { product: "Badusha",           unit: "Kg",    price: 360,  PreviousQty: 2,   lastWeekAvg: 2,   suggestedQty: 3 },
+  { product: "Dry Fruit Barfi",   unit: "Kg",    price: 740,  PreviousQty: 2,   lastWeekAvg: 2,   suggestedQty: 3 },
+  // Bakery ? Units
+  { product: "Milk Bread",        unit: "Units", price: 45,   PreviousQty: 80,  lastWeekAvg: 75,  suggestedQty: 100, badge: "Weekend Demand" },
+  { product: "Brown Bread",       unit: "Units", price: 55,   PreviousQty: 40,  lastWeekAvg: 38,  suggestedQty: 50 },
+  { product: "Cream Roll",        unit: "Units", price: 40,   PreviousQty: 30,  lastWeekAvg: 28,  suggestedQty: 40 },
+  { product: "Chocolate Cake",    unit: "Units", price: 850,  PreviousQty: 4,   lastWeekAvg: 4,   suggestedQty: 5 },
+  { product: "Fruit Cake",        unit: "Units", price: 780,  PreviousQty: 3,   lastWeekAvg: 3,   suggestedQty: 4 },
+  { product: "Cup Cake",          unit: "Units", price: 60,   PreviousQty: 20,  lastWeekAvg: 18,  suggestedQty: 25 },
+  { product: "Rusk",              unit: "Units", price: 120,  PreviousQty: 15,  lastWeekAvg: 14,  suggestedQty: 20 },
+  { product: "Butter Cookies",    unit: "Units", price: 180,  PreviousQty: 10,  lastWeekAvg: 9,   suggestedQty: 12 },
+  { product: "Chocolate Cookies", unit: "Units", price: 220,  PreviousQty: 8,   lastWeekAvg: 7,   suggestedQty: 10 },
+  { product: "Plum Cake",         unit: "Units", price: 720,  PreviousQty: 2,   lastWeekAvg: 2,   suggestedQty: 3 },
+  // Snacks ? Pcs
+  { product: "Veg Puff",          unit: "Pcs",   price: 25,   PreviousQty: 60,  lastWeekAvg: 55,  suggestedQty: 80 },
+  { product: "Egg Puff",          unit: "Pcs",   price: 30,   PreviousQty: 40,  lastWeekAvg: 38,  suggestedQty: 50 },
+  { product: "Samosa",            unit: "Pcs",   price: 20,   PreviousQty: 50,  lastWeekAvg: 45,  suggestedQty: 60 },
+  { product: "Veg Roll",          unit: "Pcs",   price: 45,   PreviousQty: 20,  lastWeekAvg: 18,  suggestedQty: 25 },
+  { product: "Spring Roll",       unit: "Pcs",   price: 65,   PreviousQty: 15,  lastWeekAvg: 14,  suggestedQty: 18 },
+  { product: "Khara Bun",         unit: "Pcs",   price: 35,   PreviousQty: 25,  lastWeekAvg: 22,  suggestedQty: 30 },
+  { product: "Sandwich",          unit: "Pcs",   price: 70,   PreviousQty: 10,  lastWeekAvg: 9,   suggestedQty: 12 },
+  { product: "Cutlet",            unit: "Pcs",   price: 40,   PreviousQty: 12,  lastWeekAvg: 10,  suggestedQty: 15 },
+  { product: "Burger",            unit: "Pcs",   price: 120,  PreviousQty: 8,   lastWeekAvg: 7,   suggestedQty: 10 },
+  { product: "Pizza Slice",       unit: "Pcs",   price: 90,   PreviousQty: 6,   lastWeekAvg: 5,   suggestedQty: 8 },
+  // Beverages ? Ltrs
+  { product: "Badam Milk",        unit: "Ltrs",  price: 50,   PreviousQty: 10,  lastWeekAvg: 10,  suggestedQty: 12 },
+  { product: "Tea",               unit: "Ltrs",  price: 20,   PreviousQty: 20,  lastWeekAvg: 18,  suggestedQty: 25 },
+  { product: "Coffee",            unit: "Ltrs",  price: 30,   PreviousQty: 15,  lastWeekAvg: 14,  suggestedQty: 18 },
+  { product: "Apple Juice",       unit: "Ltrs",  price: 70,   PreviousQty: 6,   lastWeekAvg: 5,   suggestedQty: 8 },
+  { product: "Lassi",             unit: "Ltrs",  price: 45,   PreviousQty: 8,   lastWeekAvg: 7,   suggestedQty: 10 },
+  { product: "Mango Juice",       unit: "Ltrs",  price: 60,   PreviousQty: 8,   lastWeekAvg: 7,   suggestedQty: 10 },
+  { product: "Orange Juice",      unit: "Ltrs",  price: 60,   PreviousQty: 6,   lastWeekAvg: 5,   suggestedQty: 8 },
+  { product: "Cold Coffee",       unit: "Ltrs",  price: 110,  PreviousQty: 5,   lastWeekAvg: 4,   suggestedQty: 6 },
+  { product: "Milkshake",         unit: "Ltrs",  price: 90,   PreviousQty: 6,   lastWeekAvg: 5,   suggestedQty: 8 },
+  // Seasonal ? Boxes
+  { product: "Seasonal Gift Box", unit: "Boxes", price: 599,  PreviousQty: 5,   lastWeekAvg: 4,   suggestedQty: 6 },
 ];
 
-// ── Additional BRANCH_MY_ORDERS for Gayatri Nagar, Ayyappa Nagar, Gannavaram ──
+// -- Additional BRANCH_MY_ORDERS for Gayatri Nagar, Ayyappa Nagar, Gannavaram --
 export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
-  // ── Gayatri Nagar — Regular daily order (delivered, payment pending) ──
+  // -- Gayatri Nagar � Regular daily order (delivered, payment pending) --
   {
     orderId: "ORD-2026-101",
     branch: "Gayatri Nagar",
     orderDate: "Jun 17, 2026",
     orderTime: "07:45 AM",
-    expectedDelivery: "Jun 17, 2026 — 01:00 PM",
+    expectedDelivery: "Jun 17, 2026 � 01:00 PM",
     priority: "Normal",
     lifecycleStatus: "Delivered",
     orderValue: 6800,
@@ -1132,19 +1187,19 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
     scenario: "payment-pending",
     items: [
       { product: "Kalakand",    orderedQty: 6,  approvedQty: 6,  rejectedQty: 0, unit: "Kg" },
-      { product: "Milk Bread",  orderedQty: 60, approvedQty: 60, rejectedQty: 0, unit: "pcs" },
-      { product: "Veg Puff",    orderedQty: 50, approvedQty: 50, rejectedQty: 0, unit: "pcs" },
+      { product: "Milk Bread",  orderedQty: 60, approvedQty: 60, rejectedQty: 0, unit: "Units" },
+      { product: "Veg Puff",    orderedQty: 50, approvedQty: 50, rejectedQty: 0, unit: "Pcs" },
     ],
     dispatches: [{
       slot: "Morning", time: "10:00 AM", representative: "Prasad Rao",
       vehicle: "AP 29 GR 5521",
-      products: [{ name: "Kalakand", qty: 6, unit: "Kg" }, { name: "Milk Bread", qty: 60, unit: "pcs" }, { name: "Veg Puff", qty: 50, unit: "pcs" }],
+      products: [{ name: "Kalakand", qty: 6, unit: "Kg" }, { name: "Milk Bread", qty: 60, unit: "Units" }, { name: "Veg Puff", qty: 50, unit: "Pcs" }],
       status: "Delivered",
     }],
     deliveries: [
       { product: "Kalakand",   orderedQty: 6,  deliveredQty: 6,  receivedQty: 6,  differenceQty: 0, unit: "Kg" },
-      { product: "Milk Bread", orderedQty: 60, deliveredQty: 60, receivedQty: 60, differenceQty: 0, unit: "pcs" },
-      { product: "Veg Puff",   orderedQty: 50, deliveredQty: 50, receivedQty: 50, differenceQty: 0, unit: "pcs" },
+      { product: "Milk Bread", orderedQty: 60, deliveredQty: 60, receivedQty: 60, differenceQty: 0, unit: "Units" },
+      { product: "Veg Puff",   orderedQty: 50, deliveredQty: 50, receivedQty: 50, differenceQty: 0, unit: "Pcs" },
     ],
     paymentHistory: [],
     timelineEvents: buildTimeline("Delivered", {
@@ -1158,13 +1213,13 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // ── Gayatri Nagar — Festival order (under review) ──
+  // -- Gayatri Nagar � Festival order (under review) --
   {
     orderId: "ORD-2026-102",
     branch: "Gayatri Nagar",
     orderDate: "Jun 17, 2026",
     orderTime: "09:15 AM",
-    expectedDelivery: "Jun 20, 2026 — 08:00 AM",
+    expectedDelivery: "Jun 20, 2026 � 08:00 AM",
     priority: "Urgent",
     lifecycleStatus: "Warehouse Review",
     orderValue: 14500,
@@ -1188,13 +1243,13 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // ── Gayatri Nagar — Bulk order fully paid ──
+  // -- Gayatri Nagar � Bulk order fully paid --
   {
     orderId: "ORD-2026-103",
     branch: "Gayatri Nagar",
     orderDate: "Jun 16, 2026",
     orderTime: "08:00 AM",
-    expectedDelivery: "Jun 16, 2026 — 12:00 PM",
+    expectedDelivery: "Jun 16, 2026 � 12:00 PM",
     priority: "Normal",
     lifecycleStatus: "Payment Completed",
     orderValue: 8900,
@@ -1234,16 +1289,16 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // ── Ayyappa Nagar — Urgent (production started) — already in BRANCH_MY_ORDERS as ORD-2026-004
+  // -- Ayyappa Nagar � Urgent (production started) � already in BRANCH_MY_ORDERS as ORD-2026-004
   // Adding a normal daily + a delivered order
 
-  // ── Ayyappa Nagar — Daily order fully delivered, payment pending ──
+  // -- Ayyappa Nagar � Daily order fully delivered, payment pending --
   {
     orderId: "ORD-2026-201",
     branch: "Ayyappa Nagar",
     orderDate: "Jun 17, 2026",
     orderTime: "07:00 AM",
-    expectedDelivery: "Jun 17, 2026 — 11:00 AM",
+    expectedDelivery: "Jun 17, 2026 � 11:00 AM",
     priority: "Normal",
     lifecycleStatus: "Invoice Generated",
     orderValue: 11200,
@@ -1258,19 +1313,19 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
       { product: "Kalakand",   orderedQty: 8,  approvedQty: 8,  rejectedQty: 0, unit: "Kg" },
       { product: "Milk Cake",  orderedQty: 5,  approvedQty: 4,  rejectedQty: 1, unit: "Kg" },
       { product: "Kaju Katli", orderedQty: 6,  approvedQty: 6,  rejectedQty: 0, unit: "Kg" },
-      { product: "Cream Roll", orderedQty: 40, approvedQty: 40, rejectedQty: 0, unit: "pcs" },
+      { product: "Cream Roll", orderedQty: 40, approvedQty: 40, rejectedQty: 0, unit: "Units" },
     ],
     dispatches: [{
       slot: "Morning", time: "08:30 AM", representative: "Venkat Reddy",
       vehicle: "AP 29 AN 8812",
-      products: [{ name: "Kalakand", qty: 8, unit: "Kg" }, { name: "Milk Cake", qty: 4, unit: "Kg" }, { name: "Kaju Katli", qty: 6, unit: "Kg" }, { name: "Cream Roll", qty: 40, unit: "pcs" }],
+      products: [{ name: "Kalakand", qty: 8, unit: "Kg" }, { name: "Milk Cake", qty: 4, unit: "Kg" }, { name: "Kaju Katli", qty: 6, unit: "Kg" }, { name: "Cream Roll", qty: 40, unit: "Units" }],
       status: "Delivered",
     }],
     deliveries: [
       { product: "Kalakand",   orderedQty: 8,  deliveredQty: 8,  receivedQty: 8,  differenceQty: 0,   unit: "Kg" },
       { product: "Milk Cake",  orderedQty: 5,  deliveredQty: 4,  receivedQty: 4,  differenceQty: 1,   unit: "Kg", reason: "Short supply" },
       { product: "Kaju Katli", orderedQty: 6,  deliveredQty: 6,  receivedQty: 5.9, differenceQty: 0.1, unit: "Kg", reason: "Weight variation" },
-      { product: "Cream Roll", orderedQty: 40, deliveredQty: 40, receivedQty: 40, differenceQty: 0,   unit: "pcs" },
+      { product: "Cream Roll", orderedQty: 40, deliveredQty: 40, receivedQty: 40, differenceQty: 0,   unit: "Units" },
     ],
     paymentHistory: [],
     timelineEvents: buildTimeline("Invoice Generated", {
@@ -1286,13 +1341,13 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // ── Ayyappa Nagar — Weekend special event order ──
+  // -- Ayyappa Nagar � Weekend special event order --
   {
     orderId: "ORD-2026-202",
     branch: "Ayyappa Nagar",
     orderDate: "Jun 17, 2026",
     orderTime: "10:00 AM",
-    expectedDelivery: "Jun 21, 2026 — 08:00 AM",
+    expectedDelivery: "Jun 21, 2026 � 08:00 AM",
     priority: "Normal",
     lifecycleStatus: "Order Placed",
     orderValue: 18000,
@@ -1315,13 +1370,13 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
     timelineEvents: buildTimeline("Order Placed", { "Order Placed": "Jun 17, 2026 10:00 AM" }),
   },
 
-  // ── Gannavaram — Regular order (in production) ──
+  // -- Gannavaram � Regular order (in production) --
   {
     orderId: "ORD-2026-301",
     branch: "Gannavaram",
     orderDate: "Jun 17, 2026",
     orderTime: "07:30 AM",
-    expectedDelivery: "Jun 17, 2026 — 03:00 PM",
+    expectedDelivery: "Jun 17, 2026 � 03:00 PM",
     priority: "Normal",
     lifecycleStatus: "Production Started",
     orderValue: 7600,
@@ -1333,9 +1388,9 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
     invoiceNumber: undefined,
     scenario: "full-delivery",
     items: [
-      { product: "Milk Bread",  orderedQty: 100, approvedQty: 100, rejectedQty: 0, unit: "pcs" },
-      { product: "Veg Puff",    orderedQty: 80,  approvedQty: 80,  rejectedQty: 0, unit: "pcs" },
-      { product: "Samosa",      orderedQty: 60,  approvedQty: 60,  rejectedQty: 0, unit: "pcs" },
+      { product: "Milk Bread",  orderedQty: 100, approvedQty: 100, rejectedQty: 0, unit: "Units" },
+      { product: "Veg Puff",    orderedQty: 80,  approvedQty: 80,  rejectedQty: 0, unit: "Pcs" },
+      { product: "Samosa",      orderedQty: 60,  approvedQty: 60,  rejectedQty: 0, unit: "Pcs" },
     ],
     dispatches: [],
     deliveries: [],
@@ -1348,13 +1403,13 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // ── Gannavaram — Paid order (Previous) ──
+  // -- Gannavaram � Paid order (Previous) --
   {
     orderId: "ORD-2026-302",
     branch: "Gannavaram",
     orderDate: "Jun 16, 2026",
     orderTime: "08:00 AM",
-    expectedDelivery: "Jun 16, 2026 — 01:00 PM",
+    expectedDelivery: "Jun 16, 2026 � 01:00 PM",
     priority: "Normal",
     lifecycleStatus: "Payment Completed",
     orderValue: 5400,
@@ -1414,8 +1469,8 @@ export const GANDHI_NAGAR_ORDERS: BranchOrderDetail[] = [
     scenario: "full-delivery",
     items: [
       { product: "Kalakand",    orderedQty: 8,  approvedQty: 0, rejectedQty: 0, unit: "Kg" },
-      { product: "Milk Bread",  orderedQty: 80, approvedQty: 0, rejectedQty: 0, unit: "pcs" },
-      { product: "Veg Puff",    orderedQty: 60, approvedQty: 0, rejectedQty: 0, unit: "pcs" },
+      { product: "Milk Bread",  orderedQty: 80, approvedQty: 0, rejectedQty: 0, unit: "Units" },
+      { product: "Veg Puff",    orderedQty: 60, approvedQty: 0, rejectedQty: 0, unit: "Pcs" },
     ],
     dispatches: [], deliveries: [], paymentHistory: [],
     timelineEvents: buildTimeline("Warehouse Review", {
@@ -1516,18 +1571,18 @@ export const GANDHI_NAGAR_ORDERS: BranchOrderDetail[] = [
     paymentIntent: "Payment Pending", invoiceNumber: undefined,
     scenario: "full-delivery",
     items: [
-      { product: "Milk Bread",  orderedQty: 100, approvedQty: 100, rejectedQty: 0, unit: "pcs" },
-      { product: "Cream Roll",  orderedQty: 50,  approvedQty: 50,  rejectedQty: 0, unit: "pcs" },
-      { product: "Samosa",      orderedQty: 80,  approvedQty: 80,  rejectedQty: 0, unit: "pcs" },
+      { product: "Milk Bread",  orderedQty: 100, approvedQty: 100, rejectedQty: 0, unit: "Units" },
+      { product: "Cream Roll",  orderedQty: 50,  approvedQty: 50,  rejectedQty: 0, unit: "Units" },
+      { product: "Samosa",      orderedQty: 80,  approvedQty: 80,  rejectedQty: 0, unit: "Pcs" },
     ],
     dispatches: [
       {
         slot: "Morning", time: "09:00 AM", representative: "Ramesh Kumar",
         vehicle: "AP 16 AB 1234",
         products: [
-          { name: "Milk Bread", qty: 100, unit: "pcs" },
-          { name: "Cream Roll", qty: 50,  unit: "pcs" },
-          { name: "Samosa",     qty: 80,  unit: "pcs" },
+          { name: "Milk Bread", qty: 100, unit: "Units" },
+          { name: "Cream Roll", qty: 50,  unit: "Units" },
+          { name: "Samosa",     qty: 80,  unit: "Pcs" },
         ],
         status: "Dispatched",
       },
@@ -1592,19 +1647,19 @@ export const GANDHI_NAGAR_ORDERS: BranchOrderDetail[] = [
     scenario: "payment-pending",
     items: [
       { product: "Kalakand",   orderedQty: 6,  approvedQty: 6,  rejectedQty: 0, unit: "Kg" },
-      { product: "Milk Bread", orderedQty: 60, approvedQty: 60, rejectedQty: 0, unit: "pcs" },
+      { product: "Milk Bread", orderedQty: 60, approvedQty: 60, rejectedQty: 0, unit: "Units" },
     ],
     dispatches: [
       {
         slot: "Morning", time: "10:00 AM", representative: "Naresh Babu",
         vehicle: "AP 29 AT 4521",
-        products: [{ name: "Kalakand", qty: 6, unit: "Kg" }, { name: "Milk Bread", qty: 60, unit: "pcs" }],
+        products: [{ name: "Kalakand", qty: 6, unit: "Kg" }, { name: "Milk Bread", qty: 60, unit: "Units" }],
         status: "Delivered",
       },
     ],
     deliveries: [
       { product: "Kalakand",   orderedQty: 6,  deliveredQty: 6,  receivedQty: 6,  differenceQty: 0, unit: "Kg" },
-      { product: "Milk Bread", orderedQty: 60, deliveredQty: 60, receivedQty: 60, differenceQty: 0, unit: "pcs" },
+      { product: "Milk Bread", orderedQty: 60, deliveredQty: 60, receivedQty: 60, differenceQty: 0, unit: "Units" },
     ],
     paymentHistory: [],
     timelineEvents: buildTimeline("Delivered", {
@@ -1631,7 +1686,7 @@ export const GANDHI_NAGAR_ORDERS: BranchOrderDetail[] = [
     items: [
       { product: "Kaju Katli",  orderedQty: 8,  approvedQty: 8,  rejectedQty: 0, unit: "Kg" },
       { product: "Gulab Jamun", orderedQty: 10, approvedQty: 8,  rejectedQty: 2, unit: "Kg" },
-      { product: "Cream Roll",  orderedQty: 40, approvedQty: 40, rejectedQty: 0, unit: "pcs" },
+      { product: "Cream Roll",  orderedQty: 40, approvedQty: 40, rejectedQty: 0, unit: "Units" },
     ],
     dispatches: [
       {
@@ -1640,7 +1695,7 @@ export const GANDHI_NAGAR_ORDERS: BranchOrderDetail[] = [
         products: [
           { name: "Kaju Katli",  qty: 8,  unit: "Kg" },
           { name: "Gulab Jamun", qty: 8,  unit: "Kg" },
-          { name: "Cream Roll",  qty: 40, unit: "pcs" },
+          { name: "Cream Roll",  qty: 40, unit: "Units" },
         ],
         status: "Delivered",
       },
@@ -1648,7 +1703,7 @@ export const GANDHI_NAGAR_ORDERS: BranchOrderDetail[] = [
     deliveries: [
       { product: "Kaju Katli",  orderedQty: 8,  deliveredQty: 8,  receivedQty: 8,  differenceQty: 0, unit: "Kg" },
       { product: "Gulab Jamun", orderedQty: 10, deliveredQty: 8,  receivedQty: 8,  differenceQty: 2, unit: "Kg", reason: "Short supply" },
-      { product: "Cream Roll",  orderedQty: 40, deliveredQty: 40, receivedQty: 40, differenceQty: 0, unit: "pcs" },
+      { product: "Cream Roll",  orderedQty: 40, deliveredQty: 40, receivedQty: 40, differenceQty: 0, unit: "Units" },
     ],
     paymentHistory: [],
     timelineEvents: buildTimeline("Invoice Generated", {
@@ -1676,7 +1731,7 @@ export const GANDHI_NAGAR_ORDERS: BranchOrderDetail[] = [
     items: [
       { product: "Milk Cake",   orderedQty: 5,  approvedQty: 5,  rejectedQty: 0, unit: "Kg" },
       { product: "Rasgulla",    orderedQty: 8,  approvedQty: 8,  rejectedQty: 0, unit: "Kg" },
-      { product: "Veg Puff",    orderedQty: 60, approvedQty: 60, rejectedQty: 0, unit: "pcs" },
+      { product: "Veg Puff",    orderedQty: 60, approvedQty: 60, rejectedQty: 0, unit: "Pcs" },
     ],
     dispatches: [
       {
@@ -1685,7 +1740,7 @@ export const GANDHI_NAGAR_ORDERS: BranchOrderDetail[] = [
         products: [
           { name: "Milk Cake", qty: 5, unit: "Kg" },
           { name: "Rasgulla",  qty: 8, unit: "Kg" },
-          { name: "Veg Puff",  qty: 60, unit: "pcs" },
+          { name: "Veg Puff",  qty: 60, unit: "Pcs" },
         ],
         status: "Delivered",
       },
@@ -1693,7 +1748,7 @@ export const GANDHI_NAGAR_ORDERS: BranchOrderDetail[] = [
     deliveries: [
       { product: "Milk Cake", orderedQty: 5,  deliveredQty: 5,  receivedQty: 5,  differenceQty: 0, unit: "Kg" },
       { product: "Rasgulla",  orderedQty: 8,  deliveredQty: 8,  receivedQty: 8,  differenceQty: 0, unit: "Kg" },
-      { product: "Veg Puff",  orderedQty: 60, deliveredQty: 60, receivedQty: 60, differenceQty: 0, unit: "pcs" },
+      { product: "Veg Puff",  orderedQty: 60, deliveredQty: 60, receivedQty: 60, differenceQty: 0, unit: "Pcs" },
     ],
     paymentHistory: [],
     timelineEvents: buildTimeline("Payment Pending", {
@@ -1722,7 +1777,7 @@ export const GANDHI_NAGAR_ORDERS: BranchOrderDetail[] = [
     items: [
       { product: "Kaju Katli",  orderedQty: 8,  approvedQty: 8,  rejectedQty: 0, unit: "Kg" },
       { product: "Gulab Jamun", orderedQty: 12, approvedQty: 12, rejectedQty: 0, unit: "Kg" },
-      { product: "Milk Bread",  orderedQty: 80, approvedQty: 80, rejectedQty: 0, unit: "pcs" },
+      { product: "Milk Bread",  orderedQty: 80, approvedQty: 80, rejectedQty: 0, unit: "Units" },
     ],
     dispatches: [
       {
@@ -1731,7 +1786,7 @@ export const GANDHI_NAGAR_ORDERS: BranchOrderDetail[] = [
         products: [
           { name: "Kaju Katli",  qty: 8,  unit: "Kg" },
           { name: "Gulab Jamun", qty: 12, unit: "Kg" },
-          { name: "Milk Bread",  qty: 80, unit: "pcs" },
+          { name: "Milk Bread",  qty: 80, unit: "Units" },
         ],
         status: "Delivered",
       },
@@ -1739,7 +1794,7 @@ export const GANDHI_NAGAR_ORDERS: BranchOrderDetail[] = [
     deliveries: [
       { product: "Kaju Katli",  orderedQty: 8,  deliveredQty: 8,  receivedQty: 7.9, differenceQty: 0.1, unit: "Kg", reason: "Weight variation" },
       { product: "Gulab Jamun", orderedQty: 12, deliveredQty: 12, receivedQty: 12,  differenceQty: 0,   unit: "Kg" },
-      { product: "Milk Bread",  orderedQty: 80, deliveredQty: 80, receivedQty: 80,  differenceQty: 0,   unit: "pcs" },
+      { product: "Milk Bread",  orderedQty: 80, deliveredQty: 80, receivedQty: 80,  differenceQty: 0,   unit: "Units" },
     ],
     paymentHistory: [
       { date: "Jun 17, 2026", amount: 9800, method: "UPI", reference: "UPI202606170110", status: "Completed" },
@@ -1764,3 +1819,193 @@ BRANCH_MY_ORDERS.push(...GANDHI_NAGAR_ORDERS);
 
 
 
+
+// -- Delivery Exception Mock Data ----------------------------------------------
+// Pre-seeded delivery exception records for the "In Transit" orders.
+// These appear in Delivery Tracking as Delivery Confirmation entries.
+// Keys match the In Transit orders in WORKFLOW_ORDERS: ORD-2026-014, ORD-2026-015.
+
+import type { DeliveryExceptionRecord } from "../lib/demo-store";
+
+export const MOCK_DELIVERY_EXCEPTIONS: DeliveryExceptionRecord[] = [
+  // ORD-2026-014 � Governorpet: Kalakand fully delivered, Milk Cake partially produced
+  {
+    orderId: "ORD-2026-014",
+    branch: "Governorpet",
+    date: "Jun 21, 2026",
+    orderValue: 6480,
+    receivedValue: 5670,
+    deliveryStatus: "Partial Delivery",
+    items: [
+      {
+        product: "Kalakand",
+        unit: "Kg",
+        orderedQty: 8,
+        producedQty: 8,
+        loadedQty: 8,
+        receivedQty: 8,
+        difference: 0,
+        exceptionType: null,
+        exceptionReason: "",
+      },
+      {
+        product: "Milk Cake",
+        unit: "Kg",
+        orderedQty: 4,
+        producedQty: 2,
+        loadedQty: 2,
+        receivedQty: 2,
+        difference: -2,
+        exceptionType: "Partially Produced",
+        exceptionReason: "Insufficient raw materials",
+      },
+    ],
+  },
+
+  // ORD-2026-015 � Kanuru: Kaju Katli fully delivered, Gulab Jamun missing during loading
+  {
+    orderId: "ORD-2026-015",
+    branch: "Kanuru",
+    date: "Jun 21, 2026",
+    orderValue: 5400,
+    receivedValue: 4590,
+    deliveryStatus: "Partial Delivery",
+    items: [
+      {
+        product: "Kaju Katli",
+        unit: "Kg",
+        orderedQty: 5,
+        producedQty: 5,
+        loadedQty: 5,
+        receivedQty: 5,
+        difference: 0,
+        exceptionType: null,
+        exceptionReason: "",
+      },
+      {
+        product: "Gulab Jamun",
+        unit: "Kg",
+        orderedQty: 6,
+        producedQty: 6,
+        loadedQty: 4,
+        receivedQty: 4,
+        difference: -2,
+        exceptionType: "Missing During Loading",
+        exceptionReason: "Loading mistake � item left in warehouse",
+      },
+    ],
+  },
+
+  // ORD-2026-016 � Gandhi Nagar (Delivered): All items received perfectly
+  {
+    orderId: "ORD-2026-016",
+    branch: "Gandhi Nagar",
+    date: "Jun 21, 2026",
+    orderValue: 11200,
+    receivedValue: 11200,
+    deliveryStatus: "Delivered Successfully",
+    items: [
+      {
+        product: "Kalakand",
+        unit: "Kg",
+        orderedQty: 12,
+        producedQty: 12,
+        loadedQty: 12,
+        receivedQty: 12,
+        difference: 0,
+        exceptionType: null,
+        exceptionReason: "",
+      },
+      {
+        product: "Rasgulla",
+        unit: "Kg",
+        orderedQty: 10,
+        producedQty: 10,
+        loadedQty: 10,
+        receivedQty: 10,
+        difference: 0,
+        exceptionType: null,
+        exceptionReason: "",
+      },
+      {
+        product: "Milk Bread",
+        unit: "Units",
+        orderedQty: 60,
+        producedQty: 60,
+        loadedQty: 60,
+        receivedQty: 60,
+        difference: 0,
+        exceptionType: null,
+        exceptionReason: "",
+      },
+    ],
+  },
+
+  // ORD-2026-017 � Gayatri Nagar (Delivered): Rasgulla lost during transit
+  {
+    orderId: "ORD-2026-017",
+    branch: "Gayatri Nagar",
+    date: "Jun 21, 2026",
+    orderValue: 9500,
+    receivedValue: 8200,
+    deliveryStatus: "Partial Delivery",
+    items: [
+      {
+        product: "Kaju Katli",
+        unit: "Kg",
+        orderedQty: 8,
+        producedQty: 7,
+        loadedQty: 7,
+        receivedQty: 7,
+        difference: -1,
+        exceptionType: "Partially Produced",
+        exceptionReason: "Production capacity reached",
+      },
+      {
+        product: "Gulab Jamun",
+        unit: "Kg",
+        orderedQty: 6,
+        producedQty: 6,
+        loadedQty: 6,
+        receivedQty: 5,
+        difference: -1,
+        exceptionType: "Lost During Transit",
+        exceptionReason: "Package damaged during transport",
+      },
+    ],
+  },
+
+  // ORD-2026-018 � Patamata (Delivered): Full delivery, no exceptions
+  {
+    orderId: "ORD-2026-018",
+    branch: "Patamata",
+    date: "Jun 20, 2026",
+    orderValue: 7600,
+    receivedValue: 7600,
+    deliveryStatus: "Delivered Successfully",
+    items: [
+      {
+        product: "Dry Fruit Laddu",
+        unit: "Kg",
+        orderedQty: 8,
+        producedQty: 8,
+        loadedQty: 8,
+        receivedQty: 8,
+        difference: 0,
+        exceptionType: null,
+        exceptionReason: "",
+      },
+      {
+        product: "Milk Cake",
+        unit: "Kg",
+        orderedQty: 5,
+        producedQty: 5,
+        loadedQty: 5,
+        receivedQty: 5,
+        difference: 0,
+        exceptionType: null,
+        exceptionReason: "",
+      },
+    ],
+  },
+];

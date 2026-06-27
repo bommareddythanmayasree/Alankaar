@@ -4,6 +4,7 @@ import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { WAREHOUSE_ORDER_MANAGEMENT } from "../../../shared/data/warehouse-mock-data";
 import { useWarehouse } from "../../../app/warehouse/warehouse-context";
 import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 type LifecycleStatus = "Pending" | "Approved" | "Packed" | "Dispatched" | "In Transit" | "Delivered";
 
@@ -205,7 +206,7 @@ export function OrderManagementPage() {
                     <td className="px-3 py-3">{order.branch}</td>
                     <td className="px-3 py-3">{order.date}</td>
                     <td className="px-3 py-3">{order.items} items</td>
-                    <td className="px-3 py-3">&#8377;{new Intl.NumberFormat("en-IN").format(order.amount)}</td>
+                    <td className="px-3 py-3">{formatCurrency(order.amount)}</td>
                     <td className="px-3 py-3">
                       <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusClass(order.status)}`}>
                         {order.status}

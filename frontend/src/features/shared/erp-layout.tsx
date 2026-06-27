@@ -27,7 +27,6 @@ export function ErpLayout({
     Dashboard: "/admin/dashboard",
     "Branch Management": "/admin/branch-management",
     "Products Analytics": "/admin/product-analytics",
-    "Inventory Analytics": "/admin/inventory-analytics",
     "Revenue Analytics": "/admin/revenue-analytics",
     "Order Analytics": "/admin/order-analytics",
     "AI Recommendations": "/admin/ai-recommendations",
@@ -39,6 +38,7 @@ export function ErpLayout({
     "Product Performance": "/admin/product-performance",
     "Shortage Analytics": "/admin/shortage-analytics",
     "Management Insights": "/admin/management-insights",
+    "Tray Analytics": "/admin/tray-analytics",
   };
 
   const warehouseRoutes: Record<string, string> = {
@@ -57,11 +57,11 @@ export function ErpLayout({
     "Production Planning": "/warehouse/production-planning",
     "Multi-Stage Dispatch": "/warehouse/multi-stage-dispatch",
     "Delivery Tracking": "/warehouse/delivery-tracking",
-    "Order Closure": "/warehouse/order-closure",
     "End of Day Closure": "/warehouse/eod-closure",
     "Collections": "/warehouse/collections",
     "Advance Orders": "/warehouse/advance-orders",
     "Orders Workflow": "/warehouse/orders-workflow",
+    "Tray Management": "/warehouse/tray-management",
   };
 
   const branchRoutes: Record<string, string> = {
@@ -75,13 +75,13 @@ export function ErpLayout({
     Checkout: "/branch/checkout",
     Orders: "/branch/order-history",
     "Order History": "/branch/order-history",
-    "Order Tracking": "/branch/order-tracking",
     Notifications: "/branch/notifications",
     Settings: "/branch/settings",
     "Payment Status": "/branch/payment-status",
     "Payment History": "/branch/payment-history",
     "Advance Orders": "/branch/advance-orders",
     "My Orders": "/branch/my-orders",
+    "Tray Returns": "/branch/tray-returns",
   };
 
   const resolveRoute = (item: SideItem) => {

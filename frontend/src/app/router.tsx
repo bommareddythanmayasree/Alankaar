@@ -5,13 +5,11 @@ import { LoginPage } from "../features/auth/login-page";
 import { AdminDashboardPage } from "../features/admin/dashboard/admin-dashboard-page";
 import { BranchManagementPage } from "../features/admin/branch-management/branch-management-page";
 import { ProductAnalyticsPage } from "../features/admin/product-analytics/product-analytics-page";
-import { InventoryAnalyticsPage } from "../features/admin/inventory-analytics/inventory-analytics-page";
 import { RevenueAnalyticsPage } from "../features/admin/revenue-analytics/revenue-analytics-page";
 import { AiRecommendationsPage } from "../features/admin/ai-recommendations/ai-recommendations-page";
 import { OrderAnalyticsPage } from "../features/admin/order-analytics/order-analytics-page";
 import { AdminNotificationsPage } from "../features/admin/notifications/admin-notifications-page";
 import { AdminSettingsPage } from "../features/admin/settings/admin-settings-page";
-import { ProductApprovalRequestsPage } from "../features/admin/product-approval-requests/product-approval-requests-page";
 // Demo admin pages
 import { BusinessIntelligencePage } from "../features/admin/business-intelligence/business-intelligence-page";
 import { DemandVsDeliveryPage } from "../features/admin/demand-vs-delivery/demand-vs-delivery-page";
@@ -21,8 +19,7 @@ import { ManagementInsightsPage } from "../features/admin/management-insights/ma
 // Warehouse pages
 import { WarehouseDashboardPage } from "../features/warehouse/dashboard/warehouse-dashboard-page";
 import { WarehouseStockManagementPage } from "../features/warehouse/stock-management/warehouse-stock-management-page";
-import { OrderVerificationPage } from "../features/warehouse/order-verification/order-verification-page";
-import { OrderManagementPage } from "../features/warehouse/order-management/order-management-page";
+import { OrdersWorkflowPage } from "../features/warehouse/orders-workflow/orders-workflow-page";
 import { InvoiceGenerationPage } from "../features/warehouse/invoice-generation/invoice-generation-page";
 import { DispatchTrackingPage } from "../features/warehouse/dispatch-tracking/dispatch-tracking-page";
 import { StockLogsPage } from "../features/warehouse/stock-logs/stock-logs-page";
@@ -31,16 +28,13 @@ import { WarehouseSettingsPage } from "../features/warehouse/settings/warehouse-
 // Demo warehouse pages
 import { ProductionPlanningPage } from "../features/warehouse/production-planning/production-planning-page";
 import { DeliveryTrackingPage } from "../features/warehouse/delivery-tracking/delivery-tracking-page";
-import { OrderClosurePage } from "../features/warehouse/order-closure/order-closure-page";
 import { CollectionsPage } from "../features/warehouse/collections/collections-page";
 import { WarehouseAdvanceOrdersPage } from "../features/warehouse/advance-orders/advance-orders-page";
-import { OrdersWorkflowPage } from "../features/warehouse/orders-workflow/orders-workflow-page";
 // Branch pages
 import { EmployeeManagementPage } from "../features/branch/employee-management/employee-management-page";
 import { ProductCatalogPage } from "../features/branch/product-catalog/product-catalog-page";
 import { ShoppingCartPage } from "../features/branch/shopping-cart/shopping-cart-page";
 import { CheckoutPage } from "../features/branch/checkout/checkout-page";
-import { OrderTrackingPage } from "../features/branch/order-tracking/order-tracking-page";
 import { BranchDashboardPage } from "../features/branch/dashboard/branch-dashboard-page";
 import { OrderHistoryPage } from "../features/branch/order-history/order-history-page";
 import { BranchNotificationsPage } from "../features/branch/notifications/branch-notifications-page";
@@ -52,6 +46,10 @@ import { BranchAdvanceOrdersPage } from "../features/branch/advance-orders/branc
 import { DemoBranchSelectorPage } from "../features/branch/demo-branch-selector/demo-branch-selector";
 import { MyOrdersPage } from "../features/branch/my-orders/my-orders-page";
 import { BranchProvider } from "./branch/branch-context";
+// Tray Management
+import { TrayManagementPage } from "../features/warehouse/tray-management/tray-management-page";
+import { TrayReturnsPage } from "../features/branch/tray-returns/tray-returns-page";
+import { TrayAnalyticsPage } from "../features/admin/tray-analytics/tray-analytics-page";
 
 // WarehouseProvider lives in App.tsx above RouterProvider — single instance for all routes.
 
@@ -157,16 +155,6 @@ export const router = createBrowserRouter([
     ),
   },
   {
-    path: "/admin/inventory-analytics",
-    element: (
-      <AppShell>
-        <Protected role="ADMIN">
-          <InventoryAnalyticsPage />
-        </Protected>
-      </AppShell>
-    ),
-  },
-  {
     path: "/admin/revenue-analytics",
     element: (
       <AppShell>
@@ -207,16 +195,6 @@ export const router = createBrowserRouter([
     ),
   },
   {
-    path: "/admin/product-approval-requests",
-    element: (
-      <AppShell>
-        <Protected role="ADMIN">
-          <ProductApprovalRequestsPage />
-        </Protected>
-      </AppShell>
-    ),
-  },
-  {
     path: "/admin/settings",
     element: (
       <AppShell>
@@ -242,26 +220,6 @@ export const router = createBrowserRouter([
       <WarehouseShell>
         <Protected role="WAREHOUSE_MANAGER">
           <StockLogsPage />
-        </Protected>
-      </WarehouseShell>
-    ),
-  },
-  {
-    path: "/warehouse/order-verification",
-    element: (
-      <WarehouseShell>
-        <Protected role="WAREHOUSE_MANAGER">
-          <OrderVerificationPage />
-        </Protected>
-      </WarehouseShell>
-    ),
-  },
-  {
-    path: "/warehouse/order-management",
-    element: (
-      <WarehouseShell>
-        <Protected role="WAREHOUSE_MANAGER">
-          <OrderManagementPage />
         </Protected>
       </WarehouseShell>
     ),
@@ -342,16 +300,6 @@ export const router = createBrowserRouter([
       <BranchShell>
         <Protected role="BRANCH_MANAGER">
           <CheckoutPage />
-        </Protected>
-      </BranchShell>
-    ),
-  },
-  {
-    path: "/branch/order-tracking",
-    element: (
-      <BranchShell>
-        <Protected role="BRANCH_MANAGER">
-          <OrderTrackingPage />
         </Protected>
       </BranchShell>
     ),
@@ -471,16 +419,6 @@ export const router = createBrowserRouter([
     ),
   },
   {
-    path: "/warehouse/order-closure",
-    element: (
-      <WarehouseShell>
-        <Protected role="WAREHOUSE_MANAGER">
-          <OrderClosurePage />
-        </Protected>
-      </WarehouseShell>
-    ),
-  },
-  {
     path: "/warehouse/collections",
     element: (
       <WarehouseShell>
@@ -557,6 +495,37 @@ export const router = createBrowserRouter([
       <AppShell>
         <Protected role="ADMIN">
           <ManagementInsightsPage />
+        </Protected>
+      </AppShell>
+    ),
+  },
+  // ── Tray Management ────────────────────────────────────────────────────────
+  {
+    path: "/warehouse/tray-management",
+    element: (
+      <WarehouseShell>
+        <Protected role="WAREHOUSE_MANAGER">
+          <TrayManagementPage />
+        </Protected>
+      </WarehouseShell>
+    ),
+  },
+  {
+    path: "/branch/tray-returns",
+    element: (
+      <BranchShell>
+        <Protected role="BRANCH_MANAGER">
+          <TrayReturnsPage />
+        </Protected>
+      </BranchShell>
+    ),
+  },
+  {
+    path: "/admin/tray-analytics",
+    element: (
+      <AppShell>
+        <Protected role="ADMIN">
+          <TrayAnalyticsPage />
         </Protected>
       </AppShell>
     ),

@@ -7,7 +7,7 @@ type Impact = "High Impact" | "Medium Impact" | "Low Impact";
 const recommendationStats = [
   { title: "Total Recommendations", value: "12", subtitle: "This Month" },
   { title: "High Impact", value: "6", subtitle: "Potential high revenue impact" },
-  { title: "Potential Revenue Impact", value: "?8,45,000", subtitle: "Expected this month" },
+  { title: "Potential Revenue Impact", value: "₹8,45,000", subtitle: "Expected this month" },
   { title: "Accuracy Score", value: "92.4%", subtitle: "AI Prediction Accuracy" },
 ];
 
@@ -28,7 +28,7 @@ const recommendations = [
     title: "Increase production of Rasgulla as it shows high demand in Vijayawada, Guntur and Visakhapatnam.",
     details: [
       { label: "Demand Increase", value: "25%" },
-      { label: "Potential Revenue", value: "?2,35,000" },
+      { label: "Potential Revenue", value: "₹2,35,000" },
     ],
     impact: "High Impact" as Impact,
     border: "border-[#16A34A]/45",
@@ -36,7 +36,7 @@ const recommendations = [
   },
   {
     section: "Investment Suggestion",
-    title: "Invest ?2,00,000 in Bakery Category to get better profit margin.",
+    title: "Invest ₹2,00,000 in Bakery Category to get better profit margin.",
     details: [
       { label: "Expected ROI", value: "22%" },
       { label: "Time Period", value: "6 Months" },
@@ -50,7 +50,7 @@ const recommendations = [
     title: "High potential area found in Rajahmundry. Recommended to open new branch.",
     details: [
       { label: "Suggested Location", value: "Rajahmundry, AP" },
-      { label: "Potential Revenue", value: "?3,20,000/Month" },
+      { label: "Potential Revenue", value: "₹3,20,000/Month" },
     ],
     impact: "High Impact" as Impact,
     border: "border-[#22C55E]/45",
@@ -61,7 +61,7 @@ const recommendations = [
     title: "Rasmalai demand increasing by 25% in nearby branches. Recommend launching Premium Rasmalai.",
     details: [
       { label: "Expected Demand", value: "High" },
-      { label: "Potential Revenue", value: "?1,65,000" },
+      { label: "Potential Revenue", value: "₹1,65,000" },
     ],
     impact: "Medium Impact" as Impact,
     border: "border-[#7C3AED]/45",

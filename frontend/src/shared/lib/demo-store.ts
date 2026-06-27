@@ -21,7 +21,20 @@ const KEYS = {
   ORDER_ANALYTICS: "demoOrderAnalytics",         // DemoOrderAnalytics
   PRODUCT_AUDIT: "demoProductAudit",             // DemoProductAuditEntry[]
   PRODUCT_APPROVAL_MAP: "demoProductApprovalMap", // Record<productId, "Approved"|"Rejected">
+  DELIVERY_EXCEPTIONS: "demoDeliveryExceptions", // DeliveryExceptionRecord[]
+  DISPATCH_ASSIGNMENTS: "demoDispatchAssignments", // DispatchAssignment[]
+  DELIVERY_DISCREPANCIES: "demoDeliveryDiscrepancies", // DeliveryDiscrepancy[]
+  DRIVER_POOL: "demoDriverPool",                 // DriverRecord[]
+  VEHICLE_POOL: "demoVehiclePool",               // VehicleRecord[]
+  // Tray Management
+  TRAY_CONFIG: "demoTrayConfig",                 // TrayConfig
+  TRAY_DISPATCHES: "demoTrayDispatches",         // TrayDispatch[]
+  TRAY_RETURNS: "demoTrayReturns",               // TrayReturn[]
+  TRAY_SEED_VERSION: "demoTraySeedVersion",      // string — bump to force re-seed
 } as const;
+
+/** Bump this string whenever SEED_TRAY_DISPATCHES or SEED_TRAY_RETURNS changes */
+const TRAY_SEED_VERSION = "v3";
 
 export const LOW_STOCK_THRESHOLD = 50;
 
@@ -122,7 +135,232 @@ export type DemoOrderAnalytics = {
   totalRevenue: number;
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Delivery Exception Types ──────────────────────────────────────────────────
+
+export type DeliveryExceptionType =
+  | "Partially Produced"
+  | "Missing During Loading"
+  | "Lost During Transit"
+  | null;
+
+export type DeliveryExceptionItem = {
+  product: string;
+  unit: string;
+  orderedQty: number;
+  producedQty: number;
+  loadedQty: number;
+  receivedQty: number;
+  difference: number;
+  exceptionType: DeliveryExceptionType;
+  exceptionReason: string;
+};
+
+export type DeliveryExceptionRecord = {
+  orderId: string;
+  branch: string;
+  date: string;
+  items: DeliveryExceptionItem[];
+  /** orderValue = original order amount before delivery */
+  orderValue?: number;
+  /** receivedValue = invoice amount (always based on receivedQty) */
+  receivedValue: number;
+  deliveryStatus: "Delivered Successfully" | "Partial Delivery";
+};
+
+// ── Driver & Vehicle Pool ─────────────────────────────────────────────────────
+
+export type DriverRecord = {
+  id: string;
+  name: string;
+  phone: string;
+  status: "Available" | "Assigned" | "Off Duty";
+  assignedOrderId?: string;
+};
+
+export type VehicleRecord = {
+  id: string;
+  number: string;
+  type: string;
+  status: "Available" | "Assigned" | "In Maintenance";
+  assignedOrderId?: string;
+};
+
+const SEED_DRIVERS: DriverRecord[] = [
+  { id: "DRV-001", name: "Ramesh Kumar",  phone: "9440001001", status: "Available" },
+  { id: "DRV-002", name: "Suresh Rao",    phone: "9440001002", status: "Available" },
+  { id: "DRV-003", name: "Vijay Reddy",   phone: "9440001003", status: "Available" },
+  { id: "DRV-004", name: "Arun Babu",     phone: "9440001004", status: "Available" },
+  { id: "DRV-005", name: "Nagaraju P",    phone: "9440001005", status: "Available" },
+  { id: "DRV-006", name: "Srinivas M",    phone: "9440001006", status: "Available" },
+  { id: "DRV-007", name: "Kiran Kumar",   phone: "9440001007", status: "Available" },
+  { id: "DRV-008", name: "Praveen S",     phone: "9440001008", status: "Available" },
+];
+
+const SEED_VEHICLES: VehicleRecord[] = [
+  { id: "VEH-001", number: "AP 16 AB 1234", type: "Mini Truck",  status: "Available" },
+  { id: "VEH-002", number: "AP 29 BX 7734", type: "Pickup Van",  status: "Available" },
+  { id: "VEH-003", number: "AP 16 CD 5678", type: "Mini Truck",  status: "Available" },
+  { id: "VEH-004", number: "AP 37 EF 9012", type: "Delivery Van", status: "Available" },
+  { id: "VEH-005", number: "AP 16 GH 3456", type: "Mini Truck",  status: "Available" },
+  { id: "VEH-006", number: "AP 29 IJ 7890", type: "Pickup Van",  status: "Available" },
+  { id: "VEH-007", number: "AP 16 KL 2345", type: "Delivery Van", status: "Available" },
+  { id: "VEH-008", number: "AP 37 MN 6789", type: "Mini Truck",  status: "Available" },
+];
+
+export function getDriverPool(): DriverRecord[] {
+  const stored = read<DriverRecord[]>(KEYS.DRIVER_POOL, []);
+  if (stored.length === 0) {
+    write(KEYS.DRIVER_POOL, SEED_DRIVERS);
+    return SEED_DRIVERS;
+  }
+  return stored;
+}
+
+export function getVehiclePool(): VehicleRecord[] {
+  const stored = read<VehicleRecord[]>(KEYS.VEHICLE_POOL, []);
+  if (stored.length === 0) {
+    write(KEYS.VEHICLE_POOL, SEED_VEHICLES);
+    return SEED_VEHICLES;
+  }
+  return stored;
+}
+
+function saveDriverPool(drivers: DriverRecord[]) {
+  write(KEYS.DRIVER_POOL, drivers);
+  broadcastChange(KEYS.DRIVER_POOL);
+}
+
+function saveVehiclePool(vehicles: VehicleRecord[]) {
+  write(KEYS.VEHICLE_POOL, vehicles);
+  broadcastChange(KEYS.VEHICLE_POOL);
+}
+
+// ── Dispatch Assignment ───────────────────────────────────────────────────────
+
+export type DispatchAssignment = {
+  orderId: string;
+  driverId: string;
+  driverName: string;
+  vehicleId: string;
+  vehicleNumber: string;
+  slot: "Morning" | "Evening";
+  dispatchTime: string;
+  assignedAt: string;
+};
+
+export function getDispatchAssignments(): DispatchAssignment[] {
+  return read<DispatchAssignment[]>(KEYS.DISPATCH_ASSIGNMENTS, []);
+}
+
+export function getDispatchAssignment(orderId: string): DispatchAssignment | undefined {
+  return getDispatchAssignments().find(a => a.orderId === orderId);
+}
+
+/** Assign driver + vehicle to an order dispatch, mark them as Assigned */
+export function assignDispatch(
+  orderId: string,
+  driverId: string,
+  vehicleId: string,
+  slot: "Morning" | "Evening",
+): DispatchAssignment | null {
+  const drivers = getDriverPool();
+  const vehicles = getVehiclePool();
+  const driver = drivers.find(d => d.id === driverId);
+  const vehicle = vehicles.find(v => v.id === vehicleId);
+  if (!driver || !vehicle) return null;
+
+  // Mark driver and vehicle as Assigned
+  saveDriverPool(drivers.map(d => d.id === driverId ? { ...d, status: "Assigned", assignedOrderId: orderId } : d));
+  saveVehiclePool(vehicles.map(v => v.id === vehicleId ? { ...v, status: "Assigned", assignedOrderId: orderId } : v));
+
+  const assignment: DispatchAssignment = {
+    orderId,
+    driverId,
+    driverName: driver.name,
+    vehicleId,
+    vehicleNumber: vehicle.number,
+    slot,
+    dispatchTime: slot === "Morning" ? "06:30 AM" : "03:00 PM",
+    assignedAt: nowStr(),
+  };
+
+  const existing = getDispatchAssignments().filter(a => a.orderId !== orderId);
+  write(KEYS.DISPATCH_ASSIGNMENTS, [assignment, ...existing]);
+  broadcastChange(KEYS.DISPATCH_ASSIGNMENTS);
+  return assignment;
+}
+
+/** Release driver + vehicle back to Available when order completes */
+export function releaseDispatchAssignment(orderId: string) {
+  const assignments = getDispatchAssignments();
+  const a = assignments.find(x => x.orderId === orderId);
+  if (!a) return;
+
+  saveDriverPool(getDriverPool().map(d =>
+    d.id === a.driverId ? { ...d, status: "Available", assignedOrderId: undefined } : d
+  ));
+  saveVehiclePool(getVehiclePool().map(v =>
+    v.id === a.vehicleId ? { ...v, status: "Available", assignedOrderId: undefined } : v
+  ));
+}
+
+// ── Delivery Discrepancy (Branch Report Difference) ───────────────────────────
+
+export type DiscrepancyType = "Missing Quantity" | "Damaged Items" | "Wrong Product" | "Other";
+
+export type DiscrepancyItem = {
+  product: string;
+  unit: string;
+  deliveredQty: number;
+  reportedIssue: DiscrepancyType;
+  missingQty?: number;
+  remarks: string;
+};
+
+export type DeliveryDiscrepancy = {
+  id: string;
+  orderId: string;
+  branch: string;
+  reportedAt: string;
+  status: "Pending Review" | "Resolved";
+  items: DiscrepancyItem[];
+};
+
+export function getDeliveryDiscrepancies(): DeliveryDiscrepancy[] {
+  return read<DeliveryDiscrepancy[]>(KEYS.DELIVERY_DISCREPANCIES, []);
+}
+
+export function getDeliveryDiscrepancy(orderId: string): DeliveryDiscrepancy | undefined {
+  return getDeliveryDiscrepancies().find(d => d.orderId === orderId);
+}
+
+export function reportDeliveryDiscrepancy(
+  orderId: string,
+  branch: string,
+  items: DiscrepancyItem[]
+): DeliveryDiscrepancy {
+  const discrepancy: DeliveryDiscrepancy = {
+    id: `DDR-${Date.now()}`,
+    orderId,
+    branch,
+    reportedAt: nowStr(),
+    status: "Pending Review",
+    items,
+  };
+
+  const existing = getDeliveryDiscrepancies().filter(d => d.orderId !== orderId);
+  write(KEYS.DELIVERY_DISCREPANCIES, [discrepancy, ...existing]);
+  broadcastChange(KEYS.DELIVERY_DISCREPANCIES);
+
+  // Notify warehouse
+  pushWarehouseNotif({
+    type: "delivery",
+    title: "Delivery Discrepancy Reported",
+    message: `Branch ${branch} reported a delivery difference for order ${orderId}. Please review.`,
+  });
+
+  return discrepancy;
+}
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -787,13 +1025,14 @@ export function updateWarehouseOrderStatus(orderId: string, status: WarehouseOrd
 // ── Workflow Orders — full lifecycle synchronized store ───────────────────────
 // This is the master store for the complete Order Lifecycle.
 // All pages (Orders Workflow, Production Planning, Dispatch Tracking,
-// Delivery Tracking, Invoice Generation, Collections, Order Closure,
+// Delivery Tracking, Invoice Generation, Collections,
 // Branch My Orders, Branch Order Tracking) read/write from this key.
 
 export type WorkflowLifecycleStatus =
   | "Order Placed"
   | "Under Review"
   | "Approved"
+  | "Rejected"
   | "Added To Production"
   | "Production Started"
   | "Production Completed"
@@ -843,6 +1082,14 @@ export type WorkflowOrderLive = {
   status: WorkflowLifecycleStatus;
   items: WorkflowOrderItemLive[];
   invoiceNumber?: string;
+  /** Set when delivery rep confirms delivery */
+  deliveredDate?: string;
+  deliveredTime?: string;
+  // Advance order metadata (only present for orders placed via Advance Orders page)
+  isAdvanceOrder?: boolean;
+  advanceOrderId?: string;
+  occasion?: string;
+  deliveryDate?: string;
 };
 
 const WORKFLOW_ORDERS_KEY = "workflowOrders";
@@ -876,7 +1123,8 @@ export function saveWorkflowOrder(order: WorkflowOrderLive) {
 }
 
 /** Update a single workflow order's status and notify all pages.
- *  If the order doesn't exist in workflowOrders yet, optionally seed it first. */
+ *  If the order doesn't exist in workflowOrders yet, optionally seed it first.
+ *  When status reaches "Payment Completed", automatically advances to "Order Closed". */
 export function updateWorkflowOrderStatus(
   orderId: string,
   status: WorkflowLifecycleStatus,
@@ -884,22 +1132,22 @@ export function updateWorkflowOrderStatus(
 ) {
   const orders = getWorkflowOrders();
   const exists = orders.some(o => o.id === orderId);
+  // "Payment Completed" is an accounting checkpoint — auto-closes the order
+  const finalStatus: WorkflowLifecycleStatus = status === "Payment Completed" ? "Order Closed" : status;
   let updated: WorkflowOrderLive[];
 
   if (!exists && seedData) {
-    // Insert new entry at front
-    const newOrder: WorkflowOrderLive = { id: orderId, status, ...seedData };
+    const newOrder: WorkflowOrderLive = { id: orderId, status: finalStatus, ...seedData };
     updated = [newOrder, ...orders];
   } else {
-    updated = orders.map(o => o.id === orderId ? { ...o, status } : o);
+    updated = orders.map(o => o.id === orderId ? { ...o, status: finalStatus } : o);
   }
 
   write(WORKFLOW_ORDERS_KEY, updated);
   broadcastChange(WORKFLOW_ORDERS_KEY);
-  // Also push branch notification for key transitions
   const order = updated.find(o => o.id === orderId);
   if (order) {
-    _notifyBranchForStatus(order, status);
+    _notifyBranchForStatus(order, finalStatus);
   }
 }
 
@@ -916,6 +1164,7 @@ export function setWorkflowOrderInvoice(orderId: string, invoiceNumber: string) 
 function _notifyBranchForStatus(order: WorkflowOrderLive, status: WorkflowLifecycleStatus) {
   const map: Partial<Record<WorkflowLifecycleStatus, { title: string; msg: string }>> = {
     "Approved":            { title: "Order Approved", msg: `Your order ${order.id} has been approved by warehouse.` },
+    "Rejected":            { title: "Order Rejected", msg: `Your order ${order.id} has been rejected by warehouse.` },
     "Production Started":  { title: "Production Started", msg: `Your order ${order.id} is now in production.` },
     "Ready For Dispatch":  { title: "Ready For Dispatch", msg: `Your order ${order.id} is ready for dispatch.` },
     "Morning Dispatch":    { title: "Out For Delivery", msg: `Your order ${order.id} has been dispatched (Morning).` },
@@ -936,3 +1185,346 @@ function _notifyBranchForStatus(order: WorkflowOrderLive, status: WorkflowLifecy
 }
 
 
+
+// ── Production Progress ────────────────────────────────────────────────────────
+// Tracks how much of each product has been produced today.
+// Key: product name (matches ProductEntry.product)  Value: produced quantity
+
+const PRODUCTION_PROGRESS_KEY = "demoProductionProgress";
+
+export type ProductionProgressMap = Record<string, number>; // productName → producedQty
+
+export function getProductionProgress(): ProductionProgressMap {
+  return read<ProductionProgressMap>(PRODUCTION_PROGRESS_KEY, {});
+}
+
+export function setProductionQty(productName: string, qty: number) {
+  const map = getProductionProgress();
+  map[productName] = Math.max(0, qty);
+  write(PRODUCTION_PROGRESS_KEY, map);
+  broadcastChange(PRODUCTION_PROGRESS_KEY);
+}
+
+export function resetProductionProgress() {
+  localStorage.removeItem(PRODUCTION_PROGRESS_KEY);
+}
+
+// ── Delivery Exceptions ────────────────────────────────────────────────────────
+// Stores per-order delivery exception records (exception items per product).
+
+export function getDeliveryExceptions(): DeliveryExceptionRecord[] {
+  return read<DeliveryExceptionRecord[]>(KEYS.DELIVERY_EXCEPTIONS, []);
+}
+
+export function saveDeliveryException(record: DeliveryExceptionRecord) {
+  const existing = getDeliveryExceptions().filter(r => r.orderId !== record.orderId);
+  write(KEYS.DELIVERY_EXCEPTIONS, [record, ...existing]);
+  broadcastChange(KEYS.DELIVERY_EXCEPTIONS);
+}
+
+export function getDeliveryException(orderId: string): DeliveryExceptionRecord | undefined {
+  return getDeliveryExceptions().find(r => r.orderId === orderId);
+}
+
+/**
+ * Confirm delivery for an order — saves exception record, records delivered
+ * date/time, auto-generates invoice using actual received quantity, and
+ * advances status to "Invoice Generated".
+ * Delivery difference reports are preserved separately for warehouse resolution.
+ */
+export function confirmDelivery(record: DeliveryExceptionRecord) {
+  saveDeliveryException(record);
+
+  const now = new Date();
+  const deliveredDate = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const deliveredTime = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+
+  // Auto-generate invoice number
+  const invoiceNumber = nextDemoInvoiceNumber();
+
+  // Status: Delivered → Invoice Generated → Payment Pending (both automatic)
+  // value updated to receivedValue (actual delivered qty × rate)
+  const orders = getWorkflowOrders();
+  const updated = orders.map(o =>
+    o.id === record.orderId
+      ? {
+          ...o,
+          status: "Payment Pending" as WorkflowLifecycleStatus,
+          value: record.receivedValue,
+          deliveredDate,
+          deliveredTime,
+          invoiceNumber,
+        }
+      : o
+  );
+  write(WORKFLOW_ORDERS_KEY, updated);
+  broadcastChange(WORKFLOW_ORDERS_KEY);
+
+  const isPartial = record.deliveryStatus === "Partial Delivery";
+  pushBranchNotif({
+    type: "invoice_generated",
+    title: isPartial ? "Partial Delivery — Invoice Generated" : "Delivered — Invoice Generated",
+    message: `Order ${record.orderId} delivered to ${record.branch}. Invoice ${invoiceNumber} auto-generated for ₹${record.receivedValue.toLocaleString("en-IN")}.`,
+  });
+  pushWarehouseNotif({
+    type: "invoice_generated",
+    title: "Invoice Auto-Generated on Delivery",
+    message: `Invoice ${invoiceNumber} generated for order ${record.orderId} (${record.branch}) — ₹${record.receivedValue.toLocaleString("en-IN")}.`,
+  });
+  pushAdminNotif({
+    type: "invoice_generated",
+    title: "Invoice Auto-Generated on Delivery",
+    message: `Invoice ${invoiceNumber} generated for order ${record.orderId} — ₹${record.receivedValue.toLocaleString("en-IN")}.`,
+  });
+}
+
+// ── Tray Management ───────────────────────────────────────────────────────────
+// Quantity-based tracking only. No unique IDs, no QR codes.
+// All tray state is derived from dispatches and returns.
+
+export type TrayReturnStatus = "Received" | "Ready for Return" | "Returned" | "Partial Return" | "Inspection Required";
+
+export type TrayDispatch = {
+  id: string;
+  orderId: string;
+  branch: string;
+  date: string;
+  traysSent: number;
+};
+
+export type TrayReturn = {
+  id: string;
+  dispatchId: string;
+  orderId: string;
+  branch: string;
+  date: string;
+  traysReceived: number;  // trays that went to branch
+  traysReturned: number;  // trays physically returned
+  damaged: number;
+  missing: number;
+  status: TrayReturnStatus;
+};
+
+/** Initial seed data so the UI is populated on first load */
+const SEED_TRAY_DISPATCHES: TrayDispatch[] = [
+  { id: "TD-001", orderId: "ORD-2026-001", branch: "Gandhi Nagar",   date: "Jun 20, 2026", traysSent: 12 },
+  { id: "TD-002", orderId: "ORD-2026-002", branch: "Gayatri Nagar",  date: "Jun 20, 2026", traysSent: 8  },
+  { id: "TD-003", orderId: "ORD-2026-003", branch: "Ayyappa Nagar",  date: "Jun 21, 2026", traysSent: 10 },
+  { id: "TD-004", orderId: "ORD-2026-004", branch: "Patamata",       date: "Jun 21, 2026", traysSent: 15 },
+  { id: "TD-005", orderId: "ORD-2026-005", branch: "Gannavaram",     date: "Jun 21, 2026", traysSent: 6  },
+  { id: "TD-006", orderId: "ORD-2026-006", branch: "Machavaram",     date: "Jun 22, 2026", traysSent: 9  },
+  { id: "TD-007", orderId: "ORD-2026-007", branch: "Gunadala",       date: "Jun 22, 2026", traysSent: 11 },
+  { id: "TD-008", orderId: "ORD-2026-008", branch: "Governorpet",    date: "Jun 23, 2026", traysSent: 7  },
+  { id: "TD-009", orderId: "ORD-2026-009", branch: "Kanuru",         date: "Jun 23, 2026", traysSent: 14 },
+  { id: "TD-010", orderId: "ORD-2026-010", branch: "Poranki",        date: "Jun 24, 2026", traysSent: 5  },
+  { id: "TD-011", orderId: "ORD-2026-018", branch: "Gandhi Nagar",   date: "Jun 22, 2026", traysSent: 10 },
+  { id: "TD-012", orderId: "ORD-2026-021", branch: "Gandhi Nagar",   date: "Jun 24, 2026", traysSent: 15 },
+  // Additional Gandhi Nagar records
+  { id: "TD-013", orderId: "ORD-2026-025", branch: "Gandhi Nagar",   date: "Jun 23, 2026", traysSent: 9  },
+  { id: "TD-014", orderId: "ORD-2026-028", branch: "Gandhi Nagar",   date: "Jun 23, 2026", traysSent: 11 },
+  { id: "TD-015", orderId: "ORD-2026-031", branch: "Gandhi Nagar",   date: "Jun 24, 2026", traysSent: 8  },
+  { id: "TD-016", orderId: "ORD-2026-033", branch: "Gandhi Nagar",   date: "Jun 25, 2026", traysSent: 14 },
+  { id: "TD-017", orderId: "ORD-2026-036", branch: "Gandhi Nagar",   date: "Jun 25, 2026", traysSent: 12 },
+];
+
+const SEED_TRAY_RETURNS: TrayReturn[] = [
+  { id: "TR-001", dispatchId: "TD-001", orderId: "ORD-2026-001", branch: "Gandhi Nagar",  date: "Jun 22, 2026", traysReceived: 12, traysReturned: 12, damaged: 0, missing: 0, status: "Returned"             },
+  { id: "TR-002", dispatchId: "TD-002", orderId: "ORD-2026-002", branch: "Gayatri Nagar", date: "Jun 22, 2026", traysReceived: 8,  traysReturned: 7,  damaged: 1, missing: 0, status: "Returned"             },
+  { id: "TR-003", dispatchId: "TD-003", orderId: "ORD-2026-003", branch: "Ayyappa Nagar", date: "Jun 23, 2026", traysReceived: 10, traysReturned: 0,  damaged: 0, missing: 0, status: "Ready for Return"     },
+  { id: "TR-004", dispatchId: "TD-004", orderId: "ORD-2026-004", branch: "Patamata",      date: "Jun 23, 2026", traysReceived: 15, traysReturned: 0,  damaged: 0, missing: 0, status: "Received"             },
+  { id: "TR-011", dispatchId: "TD-011", orderId: "ORD-2026-018", branch: "Gandhi Nagar",  date: "Jun 22, 2026", traysReceived: 10, traysReturned: 8,  damaged: 0, missing: 0, status: "Partial Return"       },
+  { id: "TR-012", dispatchId: "TD-012", orderId: "ORD-2026-021", branch: "Gandhi Nagar",  date: "Jun 24, 2026", traysReceived: 15, traysReturned: 13, damaged: 1, missing: 1, status: "Inspection Required"  },
+  // Additional Gandhi Nagar records
+  { id: "TR-013", dispatchId: "TD-013", orderId: "ORD-2026-025", branch: "Gandhi Nagar",  date: "Jun 25, 2026", traysReceived: 9,  traysReturned: 9,  damaged: 0, missing: 0, status: "Returned"             },
+  { id: "TR-014", dispatchId: "TD-014", orderId: "ORD-2026-028", branch: "Gandhi Nagar",  date: "Jun 25, 2026", traysReceived: 11, traysReturned: 11, damaged: 0, missing: 0, status: "Returned"             },
+  { id: "TR-015", dispatchId: "TD-015", orderId: "ORD-2026-031", branch: "Gandhi Nagar",  date: "Jun 25, 2026", traysReceived: 8,  traysReturned: 5,  damaged: 0, missing: 0, status: "Partial Return"       },
+  { id: "TR-016", dispatchId: "TD-016", orderId: "ORD-2026-033", branch: "Gandhi Nagar",  date: "Jun 26, 2026", traysReceived: 14, traysReturned: 11, damaged: 2, missing: 1, status: "Inspection Required"  },
+  { id: "TR-017", dispatchId: "TD-017", orderId: "ORD-2026-036", branch: "Gandhi Nagar",  date: "Jun 26, 2026", traysReceived: 12, traysReturned: 9,  damaged: 0, missing: 0, status: "Partial Return"       },
+];
+
+/** Total trays company owns (editable via warehouse page) */
+const DEFAULT_TOTAL_TRAYS = 200;
+
+export type TrayConfig = {
+  totalTrays: number;
+};
+
+export function getTrayConfig(): TrayConfig {
+  return read<TrayConfig>(KEYS.TRAY_CONFIG, { totalTrays: DEFAULT_TOTAL_TRAYS });
+}
+
+export function setTrayConfig(cfg: TrayConfig) {
+  write(KEYS.TRAY_CONFIG, cfg);
+  broadcastChange(KEYS.TRAY_CONFIG);
+}
+
+function ensureTraySeedVersion() {
+  const current = localStorage.getItem(KEYS.TRAY_SEED_VERSION);
+  if (current !== TRAY_SEED_VERSION) {
+    localStorage.removeItem(KEYS.TRAY_DISPATCHES);
+    localStorage.removeItem(KEYS.TRAY_RETURNS);
+    localStorage.setItem(KEYS.TRAY_SEED_VERSION, TRAY_SEED_VERSION);
+  }
+}
+
+export function getTrayDispatches(): TrayDispatch[] {
+  ensureTraySeedVersion();
+  const stored = read<TrayDispatch[] | null>(KEYS.TRAY_DISPATCHES, null);
+  if (!stored) {
+    write(KEYS.TRAY_DISPATCHES, SEED_TRAY_DISPATCHES);
+    return SEED_TRAY_DISPATCHES;
+  }
+  return stored;
+}
+
+export function saveTrayDispatch(dispatch: TrayDispatch) {
+  const existing = getTrayDispatches().filter(d => d.id !== dispatch.id);
+  write(KEYS.TRAY_DISPATCHES, [dispatch, ...existing]);
+  broadcastChange(KEYS.TRAY_DISPATCHES);
+}
+
+export function getTrayReturns(): TrayReturn[] {
+  ensureTraySeedVersion();
+  const stored = read<TrayReturn[] | null>(KEYS.TRAY_RETURNS, null);
+  if (!stored) {
+    write(KEYS.TRAY_RETURNS, SEED_TRAY_RETURNS);
+    return SEED_TRAY_RETURNS;
+  }
+  return stored;
+}
+
+export function saveTrayReturn(ret: TrayReturn) {
+  const existing = getTrayReturns().filter(r => r.id !== ret.id);
+  write(KEYS.TRAY_RETURNS, [ret, ...existing]);
+  broadcastChange(KEYS.TRAY_RETURNS);
+}
+
+/**
+ * Record a return from the warehouse side.
+ * Creates or updates the TrayReturn for a given dispatch.
+ */
+export function recordTrayReturn(
+  dispatchId: string,
+  traysReturned: number,
+  damaged: number,
+  missing: number
+) {
+  const dispatches = getTrayDispatches();
+  const dispatch = dispatches.find(d => d.id === dispatchId);
+  if (!dispatch) return;
+  const existing = getTrayReturns().find(r => r.dispatchId === dispatchId);
+  const ret: TrayReturn = existing
+    ? { ...existing, traysReturned, damaged, missing, status: "Returned" as TrayReturnStatus, date: todayStr() }
+    : {
+        id: `TR-${Date.now()}`,
+        dispatchId,
+        orderId: dispatch.orderId,
+        branch: dispatch.branch,
+        date: todayStr(),
+        traysReceived: dispatch.traysSent,
+        traysReturned,
+        damaged,
+        missing,
+        status: "Returned" as TrayReturnStatus,
+      };
+  saveTrayReturn(ret);
+  pushBranchNotifTray(dispatch.branch, dispatch.orderId, traysReturned);
+}
+
+function pushBranchNotifTray(branch: string, orderId: string, traysReturned: number) {
+  const all = read<DemoNotif[]>(KEYS.BRANCH_NOTIFS, []);
+  all.unshift({
+    id: `bn-tray-${Date.now()}`,
+    type: "delivery",
+    title: "Tray Return Confirmed",
+    message: `${traysReturned} tray(s) returned from ${branch} for order ${orderId} have been confirmed by warehouse.`,
+    timestamp: nowStr(),
+    read: false,
+  });
+  write(KEYS.BRANCH_NOTIFS, all);
+}
+
+/**
+ * Derived tray summary used by all three portals.
+ */
+export type TraySummary = {
+  totalTrays: number;
+  availableTrays: number;
+  traysAtBranches: number;
+  pendingReturns: number;
+  damagedTrays: number;
+};
+
+export function getTraySummary(): TraySummary {
+  const { totalTrays } = getTrayConfig();
+  const dispatches = getTrayDispatches();
+  const returns = getTrayReturns();
+
+  // Sum all trays sent
+  const totalSent = dispatches.reduce((s, d) => s + d.traysSent, 0);
+
+  // Sum all trays returned (regardless of status)
+  const totalReturned = returns.reduce((s, r) => s + r.traysReturned, 0);
+
+  // Damaged from all returns
+  const damagedTrays = returns.reduce((s, r) => s + r.damaged, 0);
+
+  // Trays currently at branches = sent - returned (not yet back)
+  const traysAtBranches = totalSent - totalReturned;
+
+  // Pending returns = trays at branches that haven't been returned yet
+  // (dispatches that have no "Returned" status return)
+  const pendingReturns = dispatches.reduce((s, d) => {
+    const ret = returns.find(r => r.dispatchId === d.id);
+    if (!ret || ret.status !== "Returned") return s + d.traysSent;
+    return s;
+  }, 0);
+
+  // Available = total - at branches - damaged
+  const availableTrays = Math.max(0, totalTrays - traysAtBranches - damagedTrays);
+
+  return { totalTrays, availableTrays, traysAtBranches, pendingReturns, damagedTrays };
+}
+
+/**
+ * Branch-wise tray ledger: opening balance + sent - returned = current at branch.
+ */
+export type BranchTrayLedger = {
+  branch: string;
+  traysSent: number;
+  traysReturned: number;
+  damaged: number;
+  missing: number;
+  currentAtBranch: number;
+  pendingReturn: number;
+};
+
+export function getBranchTrayLedger(): BranchTrayLedger[] {
+  const dispatches = getTrayDispatches();
+  const returns = getTrayReturns();
+
+  // Group by branch
+  const branchMap: Record<string, BranchTrayLedger> = {};
+
+  for (const d of dispatches) {
+    if (!branchMap[d.branch]) {
+      branchMap[d.branch] = { branch: d.branch, traysSent: 0, traysReturned: 0, damaged: 0, missing: 0, currentAtBranch: 0, pendingReturn: 0 };
+    }
+    branchMap[d.branch].traysSent += d.traysSent;
+  }
+
+  for (const r of returns) {
+    if (!branchMap[r.branch]) {
+      branchMap[r.branch] = { branch: r.branch, traysSent: 0, traysReturned: 0, damaged: 0, missing: 0, currentAtBranch: 0, pendingReturn: 0 };
+    }
+    branchMap[r.branch].traysReturned += r.traysReturned;
+    branchMap[r.branch].damaged += r.damaged;
+    branchMap[r.branch].missing += r.missing;
+  }
+
+  return Object.values(branchMap).map(b => ({
+    ...b,
+    currentAtBranch: Math.max(0, b.traysSent - b.traysReturned),
+    pendingReturn: Math.max(0, b.traysSent - b.traysReturned),
+  }));
+}

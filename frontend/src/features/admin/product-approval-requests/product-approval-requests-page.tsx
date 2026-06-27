@@ -13,6 +13,7 @@ import {
   type DemoProductAuditEntry,
 } from "../../../shared/lib/demo-store";
 import { useWarehouseForBranch } from "../../../app/warehouse/warehouse-context";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 const STATUS_BADGE: Record<DemoPendingProduct["status"], { label: string; cls: string }> = {
   Pending: { label: "Pending Approval", cls: "bg-amber-100 text-amber-700" },
@@ -108,7 +109,7 @@ export function ProductApprovalRequestsPage() {
                     <tr key={p.id} className="border-t border-slate-100">
                       <td className="px-3 py-3 font-medium text-slate-800">{p.productName}</td>
                       <td className="px-3 py-3 text-slate-600">{p.category}</td>
-                      <td className="px-3 py-3">&#8377;{p.price}</td>
+                      <td className="px-3 py-3">{formatCurrency(p.price)}</td>
                       <td className="px-3 py-3">{p.stock} {p.unit}</td>
                       <td className="px-3 py-3 text-slate-600">Warehouse Admin</td>
                       <td className="px-3 py-3 text-slate-500 text-xs">{p.createdAt}</td>

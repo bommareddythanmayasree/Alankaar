@@ -6,6 +6,7 @@ import { BRANCH_SIDEBAR_LABELS } from "../../../shared/data/branch-mock-data";
 import {
   getWorkflowOrders,
   getCurrentDemoBranchName,
+  getDeliveryException,
   type WorkflowOrderLive,
   type WorkflowLifecycleStatus,
 } from "../../../shared/lib/demo-store";
@@ -13,6 +14,57 @@ import {
 // ── Types ─────────────────────────────────────────────────────────────────────
 type PaymentMethod = "UPI" | "Net Banking" | "Cash Collection";
 type PaymentIntent = "Ready To Pay" | "Will Pay Later" | "Payment Pending" | "Payment Completed";
+
+type MockPaymentOrder = WorkflowOrderLive & { isMock: true };
+
+// ── Demo mock records (never synced, always appended below live data) ──────────
+const MOCK_PAYMENT_ORDERS: MockPaymentOrder[] = [
+  {
+    isMock: true,
+    id: "ORD-2026-105",
+    branch: "Benz Circle",
+    date: "2026-06-20",
+    time: "10:00",
+    priority: "Normal",
+    status: "Payment Pending",
+    value: 5800,
+    invoiceNumber: "INV-2026-3011",
+    items: [
+      { product: "Kaju Katli", orderedQty: 10, approvedQty: 10, rejectedQty: 0, unit: "kg" },
+      { product: "Gulab Jamun", orderedQty: 5, approvedQty: 5, rejectedQty: 0, unit: "kg" },
+    ],
+  },
+  {
+    isMock: true,
+    id: "ORD-2026-112",
+    branch: "Patamata",
+    date: "2026-06-22",
+    time: "11:30",
+    priority: "Normal",
+    status: "Invoice Generated",
+    value: 7400,
+    invoiceNumber: "INV-2026-3015",
+    items: [
+      { product: "Boondi Laddu", orderedQty: 12, approvedQty: 12, rejectedQty: 0, unit: "kg" },
+      { product: "Mysore Pak", orderedQty: 8, approvedQty: 8, rejectedQty: 0, unit: "kg" },
+    ],
+  },
+  {
+    isMock: true,
+    id: "ORD-2026-118",
+    branch: "Governorpet",
+    date: "2026-06-24",
+    time: "09:15",
+    priority: "Normal",
+    status: "Invoice Generated",
+    value: 3250,
+    invoiceNumber: "INV-2026-3020",
+    items: [
+      { product: "Rasmalai", orderedQty: 6, approvedQty: 6, rejectedQty: 0, unit: "kg" },
+      { product: "Butter Cookies", orderedQty: 4, approvedQty: 4, rejectedQty: 0, unit: "kg" },
+    ],
+  },
+];
 
 const PAYMENT_METHODS: PaymentMethod[] = ["UPI", "Net Banking", "Cash Collection"];
 const INTENT_OPTIONS: PaymentIntent[] = ["Ready To Pay", "Will Pay Later", "Payment Pending", "Payment Completed"];
@@ -22,13 +74,14 @@ const PAYMENT_STATUS_STATUSES: WorkflowLifecycleStatus[] = [
   "Invoice Generated",
   "Payment Pending",
   "Payment Completed",
+  "Order Closed",
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(v: number) { return `\u20B9${v.toLocaleString("en-IN")}`; }
 
 function statusColor(status: WorkflowLifecycleStatus) {
-  if (status === "Payment Completed")  return "bg-emerald-100 text-emerald-700 border-emerald-200";
+  if (status === "Order Closed" || status === "Payment Completed") return "bg-emerald-100 text-emerald-700 border-emerald-200";
   if (status === "Payment Pending")    return "bg-amber-100 text-amber-700 border-amber-200";
   if (status === "Invoice Generated")  return "bg-violet-100 text-violet-700 border-violet-200";
   return "bg-slate-100 text-slate-600 border-slate-200";
@@ -54,19 +107,21 @@ const FLOW_STEPS: WorkflowLifecycleStatus[] = [
 ];
 
 function buildSteps(order: WorkflowOrderLive) {
-  const idx = FLOW_STEPS.indexOf(order.status as WorkflowLifecycleStatus);
+  const isComplete = order.status === "Payment Completed" || order.status === "Order Closed";
+  const idx = isComplete ? FLOW_STEPS.length : FLOW_STEPS.indexOf(order.status as WorkflowLifecycleStatus);
   return FLOW_STEPS.map((step, i) => ({
     label: step,
-    done: order.status === "Payment Completed" ? true : i < idx,
-    current: i === idx && order.status !== "Payment Completed",
+    done: i < (isComplete ? FLOW_STEPS.length : idx),
+    current: !isComplete && i === idx,
   }));
 }
 
 // ── Invoice Modal ─────────────────────────────────────────────────────────────
 function InvoiceModal({ order, onClose }: { order: WorkflowOrderLive; onClose: () => void }) {
-  const subtotal = order.value;
-  const tax = Math.round(subtotal * 0.05);
-  const total = subtotal + tax;
+  // order.value is the final payable amount (inclusive of GST)
+  const total = order.value;
+  const subtotal = Math.round(total / 1.05);
+  const tax = total - subtotal;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
@@ -84,11 +139,20 @@ function InvoiceModal({ order, onClose }: { order: WorkflowOrderLive; onClose: (
 
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Products</p>
         <div className="mb-4 space-y-1">
-          {order.items.map(p => (
-            <div key={p.product} className="flex justify-between rounded bg-slate-50 px-3 py-1.5 text-sm">
-              <span className="text-slate-700">{p.product} &mdash; {p.approvedQty} {p.unit}</span>
-            </div>
-          ))}
+          {(() => {
+            const exception = getDeliveryException(order.id);
+            return order.items.map(p => {
+              const excItem = exception?.items.find(e => e.product === p.product);
+              const deliveredQty = excItem
+                ? excItem.receivedQty
+                : (p.approvedQty > 0 ? p.approvedQty : p.orderedQty);
+              return (
+                <div key={p.product} className="flex justify-between rounded bg-slate-50 px-3 py-1.5 text-sm">
+                  <span className="text-slate-700">{p.product} &mdash; {deliveredQty} {p.unit}</span>
+                </div>
+              );
+            });
+          })()}
         </div>
 
         <div className="space-y-1.5 border-t border-b border-slate-100 py-3 text-sm">
@@ -206,11 +270,12 @@ export function PaymentStatusPage() {
   const [successMap, setSuccessMap] = useState<Record<string, "normal" | "verification">>({});
 
   const loadOrders = useCallback(() => {
-    const all = getWorkflowOrders().filter(o =>
+    const live = getWorkflowOrders().filter(o =>
       o.branch === currentBranch &&
       PAYMENT_STATUS_STATUSES.includes(o.status as WorkflowLifecycleStatus)
     );
-    setOrders(all);
+    // Append mock records below live ones; they appear for all branches (demo purposes)
+    setOrders([...live, ...MOCK_PAYMENT_ORDERS]);
   }, [currentBranch]);
 
   useEffect(() => {
@@ -227,8 +292,8 @@ export function PaymentStatusPage() {
   const paymentOrder = orders.find(o => o.id === paymentId) ?? null;
 
   const totalValue       = orders.reduce((s, o) => s + o.value, 0);
-  const totalPaid        = orders.filter(o => o.status === "Payment Completed").reduce((s, o) => s + o.value, 0);
-  const totalOutstanding = orders.filter(o => o.status !== "Payment Completed").reduce((s, o) => s + o.value, 0);
+  const totalPaid        = orders.filter(o => o.status === "Order Closed" || o.status === "Payment Completed").reduce((s, o) => s + o.value, 0);
+  const totalOutstanding = orders.filter(o => o.status !== "Order Closed" && o.status !== "Payment Completed").reduce((s, o) => s + o.value, 0);
 
   function handleSuccess(orderId: string, isVerification: boolean) {
     setPaymentId(null);
@@ -261,14 +326,21 @@ export function PaymentStatusPage() {
       {/* Order Cards */}
       {orders.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm text-slate-500">
-          No orders in payment workflow. Orders appear here when Invoice Generated, Payment Pending, or Payment Completed.
+          No orders in payment workflow. Orders appear here when Invoice Generated, Payment Pending, or Order Closed.
         </div>
       ) : (
         <div className="space-y-4">
           {orders.map(order => {
-            const intent = intentMap[order.id] ?? (
-              order.status === "Payment Completed" ? "Payment Completed" : "Payment Pending"
-            );
+            const intent: PaymentIntent =
+              order.status === "Payment Completed" || order.status === "Order Closed"
+                ? "Payment Completed"
+                : order.status === "Invoice Generated"
+                  ? (intentMap[order.id] ?? "Ready To Pay")
+                  : (intentMap[order.id] ?? (
+                      (order as MockPaymentOrder).isMock && order.id === "ORD-2026-112" ? "Will Pay Later" :
+                      (order as MockPaymentOrder).isMock && order.id === "ORD-2026-118" ? "Ready To Pay" :
+                      "Payment Pending"
+                    ));
             const steps = buildSteps(order);
             const banner = successMap[order.id];
 
@@ -294,6 +366,9 @@ export function PaymentStatusPage() {
                     <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${statusColor(order.status as WorkflowLifecycleStatus)}`}>
                       {order.status}
                     </span>
+                    {(order as MockPaymentOrder).isMock && (
+                      <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-400">Demo</span>
+                    )}
                     <span className="text-xs text-slate-500">{order.branch} &middot; {order.date}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-4 text-sm">
@@ -339,7 +414,7 @@ export function PaymentStatusPage() {
                     <Eye className="h-3.5 w-3.5" />View Invoice
                   </button>
 
-                  {order.status !== "Payment Completed" && !banner && (
+                  {order.status !== "Payment Completed" && order.status !== "Order Closed" && !banner && (
                     <button onClick={() => setPaymentId(order.id)}
                       className="inline-flex items-center gap-1.5 rounded-full bg-[#0B2C66] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#092757]">
                       <Receipt className="h-3.5 w-3.5" />Proceed To Payment
