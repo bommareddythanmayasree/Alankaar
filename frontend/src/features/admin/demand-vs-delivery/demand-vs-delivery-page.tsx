@@ -4,6 +4,7 @@ import { ErpLayout } from "../../shared/erp-layout";
 import { ADMIN_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { ADMIN_SIDEBAR_LABELS } from "../../../shared/data/admin-mock-data";
 import { DEMO_DEMAND_TREND, DEMO_WEEKLY_TREND, DEMO_MONTHLY_TREND } from "../../../shared/data/demo-mock-data";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 type Period = "Daily" | "Weekly" | "Monthly";
 
@@ -58,7 +59,7 @@ export function DemandVsDeliveryPage() {
               <CartesianGrid vertical={false} stroke="#EEF2F7" />
               <XAxis dataKey={xKey} tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={v => period === "Monthly" ? `₹${(Number(v) / 100000).toFixed(1)}L` : Number(v) > 10000 ? `₹${(Number(v) / 1000).toFixed(0)}k` : v.toString()} />
-              <Tooltip formatter={(v: unknown) => Number(v) > 10000 ? `₹${Number(v).toLocaleString("en-IN")}` : String(v)} />
+              <Tooltip formatter={(v: unknown) => Number(v) > 10000 ? formatCurrency(Number(v)) : String(v)} />
               <Legend />
               <Bar dataKey="requested" name="Requested" fill="#6366f1" radius={[4, 4, 0, 0]} />
               <Bar dataKey="delivered" name="Delivered" fill="#10b981" radius={[4, 4, 0, 0]} />
@@ -77,7 +78,7 @@ export function DemandVsDeliveryPage() {
               <CartesianGrid stroke="#EEF2F7" />
               <XAxis dataKey={xKey} tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={v => Number(v) > 10000 ? `₹${(Number(v) / 1000).toFixed(0)}k` : v.toString()} />
-              <Tooltip formatter={(v: unknown) => Number(v) > 10000 ? `₹${Number(v).toLocaleString("en-IN")}` : String(v)} />
+              <Tooltip formatter={(v: unknown) => Number(v) > 10000 ? formatCurrency(Number(v)) : String(v)} />
               <Legend />
               <Line dataKey="requested" name="Requested" stroke="#6366f1" strokeWidth={2} dot={false} />
               <Line dataKey="delivered" name="Delivered" stroke="#10b981" strokeWidth={2} dot={false} />

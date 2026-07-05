@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // WORKFLOW MOCK DATA --- Connected Branch→Warehouse→Production flow
 // All 5 Phase-1 requirements share this single data source.
 // ============================================================
@@ -15,8 +15,10 @@ export type WorkflowStatus =
   | "Evening Dispatch"
   | "In Transit"
   | "Delivered"
+  | "Awaiting Invoice"
   | "Invoice Generated"
   | "Payment Pending"
+  | "Payment Verification Pending"
   | "Payment Completed"
   | "Order Closed";
 
@@ -294,6 +296,22 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
       { product: "Milk Cake",       orderedQty: 5, approvedQty: 5, rejectedQty: 0, unit: "Kg" },
     ],
   },
+  // -- Awaiting Invoice (delivery confirmed, invoice not yet generated) ------
+  {
+    id: "ORD-2026-025",
+    branch: "Poranki",
+    date: "Jun 20, 2026",
+    time: "05:45 AM",
+    priority: "Normal",
+    value: 5200,
+    status: "Awaiting Invoice",
+    deliveredDate: "Jun 21, 2026",
+    deliveredTime: "08:00 AM",
+    items: [
+      { product: "Kalakand",        orderedQty: 5, approvedQty: 5, rejectedQty: 0, unit: "Kg" },
+      { product: "Dry Fruit Laddu", orderedQty: 3, approvedQty: 3, rejectedQty: 0, unit: "Kg" },
+    ],
+  },
   // -- Payment Pending (invoice auto-generated on delivery) -----------------------------------------
   {
     id: "ORD-2026-019",
@@ -342,6 +360,39 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
     items: [
       { product: "Kaju Katli", orderedQty: 4, approvedQty: 4, rejectedQty: 0, unit: "Kg" },
       { product: "Milk Bread", orderedQty: 80, approvedQty: 80, rejectedQty: 0, unit: "Units" },
+    ],
+  },
+  // -- Payment Verification Pending (branch paid, awaiting warehouse confirmation) --
+  {
+    id: "ORD-2026-026",
+    branch: "Kanuru",
+    date: "Jun 20, 2026",
+    time: "05:30 AM",
+    priority: "Normal",
+    value: 7350,
+    status: "Payment Verification Pending",
+    invoiceNumber: "INV-2026-1007",
+    deliveredDate: "Jun 21, 2026",
+    deliveredTime: "08:10 AM",
+    items: [
+      { product: "Gulab Jamun", orderedQty: 8, approvedQty: 8, rejectedQty: 0, unit: "Kg" },
+      { product: "Rasgulla",    orderedQty: 6, approvedQty: 6, rejectedQty: 0, unit: "Kg" },
+    ],
+  },
+  {
+    id: "ORD-2026-027",
+    branch: "Governorpet",
+    date: "Jun 20, 2026",
+    time: "06:00 AM",
+    priority: "Normal",
+    value: 5600,
+    status: "Payment Verification Pending",
+    invoiceNumber: "INV-2026-1008",
+    deliveredDate: "Jun 21, 2026",
+    deliveredTime: "09:00 AM",
+    items: [
+      { product: "Kaju Katli", orderedQty: 5, approvedQty: 5, rejectedQty: 0, unit: "Kg" },
+      { product: "Milk Cake",  orderedQty: 3, approvedQty: 3, rejectedQty: 0, unit: "Kg" },
     ],
   },
   // -- Order Closed (auto-closed when payment completed) --------------------
@@ -735,8 +786,11 @@ export type BranchOrderLifecycle =
   | "Evening Dispatch"
   | "In Transit"
   | "Delivered"
+  | "Partially Delivered"
+  | "Awaiting Invoice"
   | "Invoice Generated"
   | "Payment Pending"
+  | "Payment Verification Pending"
   | "Payment Completed"
   | "Order Closed";
 
@@ -801,7 +855,8 @@ export const ALL_STEPS: BranchOrderLifecycle[] = [
   "Order Placed", "Warehouse Review", "Approved", "Added To Production",
   "Production Started", "Production Completed", "Ready For Dispatch",
   "Morning Dispatch", "Evening Dispatch", "In Transit",
-  "Delivered", "Invoice Generated", "Payment Pending", "Payment Completed", "Order Closed",
+  "Delivered", "Partially Delivered", "Awaiting Invoice", "Invoice Generated", "Payment Pending",
+  "Payment Verification Pending", "Payment Completed", "Order Closed",
 ];
 
 function buildTimeline(current: BranchOrderLifecycle, timestamps: Partial<Record<BranchOrderLifecycle, string>>) {
@@ -1101,11 +1156,11 @@ export const BRANCH_WORKFLOW_KPI = {
   inProduction: 2,
   readyForDispatch: 1,
   pendingDeliveries: 1,
-  outstandingPayments: "?19,990",
+  outstandingPayments: 19990,
   advanceOrders: 1,
 };
 
-// -- Branch Order Intelligence � per-product history hints shown in Place Order --
+// -- Branch Order Intelligence — per-product history hints shown in Place Order --
 export type OrderIntelligence = {
   product: string;
   unit: string;
@@ -1168,13 +1223,13 @@ export const BRANCH_ORDER_INTELLIGENCE: OrderIntelligence[] = [
 
 // -- Additional BRANCH_MY_ORDERS for Gayatri Nagar, Ayyappa Nagar, Gannavaram --
 export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
-  // -- Gayatri Nagar � Regular daily order (delivered, payment pending) --
+  // -- Gayatri Nagar — Regular daily order (delivered, payment pending) --
   {
     orderId: "ORD-2026-101",
     branch: "Gayatri Nagar",
     orderDate: "Jun 17, 2026",
     orderTime: "07:45 AM",
-    expectedDelivery: "Jun 17, 2026 � 01:00 PM",
+    expectedDelivery: "Jun 17, 2026 — 01:00 PM",
     priority: "Normal",
     lifecycleStatus: "Delivered",
     orderValue: 6800,
@@ -1213,13 +1268,13 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // -- Gayatri Nagar � Festival order (under review) --
+  // -- Gayatri Nagar — Festival order (under review) --
   {
     orderId: "ORD-2026-102",
     branch: "Gayatri Nagar",
     orderDate: "Jun 17, 2026",
     orderTime: "09:15 AM",
-    expectedDelivery: "Jun 20, 2026 � 08:00 AM",
+    expectedDelivery: "Jun 20, 2026 — 08:00 AM",
     priority: "Urgent",
     lifecycleStatus: "Warehouse Review",
     orderValue: 14500,
@@ -1243,13 +1298,13 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // -- Gayatri Nagar � Bulk order fully paid --
+  // -- Gayatri Nagar — Bulk order fully paid --
   {
     orderId: "ORD-2026-103",
     branch: "Gayatri Nagar",
     orderDate: "Jun 16, 2026",
     orderTime: "08:00 AM",
-    expectedDelivery: "Jun 16, 2026 � 12:00 PM",
+    expectedDelivery: "Jun 16, 2026 — 12:00 PM",
     priority: "Normal",
     lifecycleStatus: "Payment Completed",
     orderValue: 8900,
@@ -1289,16 +1344,16 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // -- Ayyappa Nagar � Urgent (production started) � already in BRANCH_MY_ORDERS as ORD-2026-004
+  // -- Ayyappa Nagar — Urgent (production started) — already in BRANCH_MY_ORDERS as ORD-2026-004
   // Adding a normal daily + a delivered order
 
-  // -- Ayyappa Nagar � Daily order fully delivered, payment pending --
+  // -- Ayyappa Nagar — Daily order fully delivered, payment pending --
   {
     orderId: "ORD-2026-201",
     branch: "Ayyappa Nagar",
     orderDate: "Jun 17, 2026",
     orderTime: "07:00 AM",
-    expectedDelivery: "Jun 17, 2026 � 11:00 AM",
+    expectedDelivery: "Jun 17, 2026 — 11:00 AM",
     priority: "Normal",
     lifecycleStatus: "Invoice Generated",
     orderValue: 11200,
@@ -1341,13 +1396,13 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // -- Ayyappa Nagar � Weekend special event order --
+  // -- Ayyappa Nagar — Weekend special event order --
   {
     orderId: "ORD-2026-202",
     branch: "Ayyappa Nagar",
     orderDate: "Jun 17, 2026",
     orderTime: "10:00 AM",
-    expectedDelivery: "Jun 21, 2026 � 08:00 AM",
+    expectedDelivery: "Jun 21, 2026 — 08:00 AM",
     priority: "Normal",
     lifecycleStatus: "Order Placed",
     orderValue: 18000,
@@ -1370,13 +1425,13 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
     timelineEvents: buildTimeline("Order Placed", { "Order Placed": "Jun 17, 2026 10:00 AM" }),
   },
 
-  // -- Gannavaram � Regular order (in production) --
+  // -- Gannavaram — Regular order (in production) --
   {
     orderId: "ORD-2026-301",
     branch: "Gannavaram",
     orderDate: "Jun 17, 2026",
     orderTime: "07:30 AM",
-    expectedDelivery: "Jun 17, 2026 � 03:00 PM",
+    expectedDelivery: "Jun 17, 2026 — 03:00 PM",
     priority: "Normal",
     lifecycleStatus: "Production Started",
     orderValue: 7600,
@@ -1403,13 +1458,13 @@ export const EXTRA_BRANCH_ORDERS: BranchOrderDetail[] = [
     }),
   },
 
-  // -- Gannavaram � Paid order (Previous) --
+  // -- Gannavaram — Paid order (Previous) --
   {
     orderId: "ORD-2026-302",
     branch: "Gannavaram",
     orderDate: "Jun 16, 2026",
     orderTime: "08:00 AM",
-    expectedDelivery: "Jun 16, 2026 � 01:00 PM",
+    expectedDelivery: "Jun 16, 2026 — 01:00 PM",
     priority: "Normal",
     lifecycleStatus: "Payment Completed",
     orderValue: 5400,
@@ -1828,7 +1883,7 @@ BRANCH_MY_ORDERS.push(...GANDHI_NAGAR_ORDERS);
 import type { DeliveryExceptionRecord } from "../lib/demo-store";
 
 export const MOCK_DELIVERY_EXCEPTIONS: DeliveryExceptionRecord[] = [
-  // ORD-2026-014 � Governorpet: Kalakand fully delivered, Milk Cake partially produced
+  // ORD-2026-014 — Governorpet: Kalakand fully delivered, Milk Cake partially produced
   {
     orderId: "ORD-2026-014",
     branch: "Governorpet",
@@ -1862,7 +1917,7 @@ export const MOCK_DELIVERY_EXCEPTIONS: DeliveryExceptionRecord[] = [
     ],
   },
 
-  // ORD-2026-015 � Kanuru: Kaju Katli fully delivered, Gulab Jamun missing during loading
+  // ORD-2026-015 — Kanuru: Kaju Katli fully delivered, Gulab Jamun missing during loading
   {
     orderId: "ORD-2026-015",
     branch: "Kanuru",
@@ -1891,12 +1946,12 @@ export const MOCK_DELIVERY_EXCEPTIONS: DeliveryExceptionRecord[] = [
         receivedQty: 4,
         difference: -2,
         exceptionType: "Missing During Loading",
-        exceptionReason: "Loading mistake � item left in warehouse",
+        exceptionReason: "Loading mistake — item left in warehouse",
       },
     ],
   },
 
-  // ORD-2026-016 � Gandhi Nagar (Delivered): All items received perfectly
+  // ORD-2026-016 — Gandhi Nagar (Delivered): All items received perfectly
   {
     orderId: "ORD-2026-016",
     branch: "Gandhi Nagar",
@@ -1941,7 +1996,7 @@ export const MOCK_DELIVERY_EXCEPTIONS: DeliveryExceptionRecord[] = [
     ],
   },
 
-  // ORD-2026-017 � Gayatri Nagar (Delivered): Rasgulla lost during transit
+  // ORD-2026-017 — Gayatri Nagar (Delivered): Rasgulla lost during transit
   {
     orderId: "ORD-2026-017",
     branch: "Gayatri Nagar",
@@ -1975,7 +2030,7 @@ export const MOCK_DELIVERY_EXCEPTIONS: DeliveryExceptionRecord[] = [
     ],
   },
 
-  // ORD-2026-018 � Patamata (Delivered): Full delivery, no exceptions
+  // ORD-2026-018 — Patamata (Delivered): Full delivery, no exceptions
   {
     orderId: "ORD-2026-018",
     branch: "Patamata",

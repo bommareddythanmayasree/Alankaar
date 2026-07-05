@@ -15,6 +15,7 @@ import { ErpLayout } from "../../shared/erp-layout";
 import { useApi } from "../../../shared/lib/api";
 import { ADMIN_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { ADMIN_SIDEBAR_LABELS } from "../../../shared/data/admin-mock-data";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 type AdminDashboardResponse = {
   cards: {
@@ -191,7 +192,7 @@ const visibleActivities = showAllActivities
     />
 
     <Tooltip
-      formatter={(value) => `₹${new Intl.NumberFormat("en-IN").format(Number(value ?? 0))}`}
+      formatter={(value) => formatCurrency(Number(value ?? 0))}
       contentStyle={{
         borderRadius: "10px",
         border: "1px solid #E2E8F0",

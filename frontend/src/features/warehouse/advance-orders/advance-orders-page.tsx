@@ -5,6 +5,7 @@ import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
 import { DEMO_ADVANCE_ORDERS, DEMO_URGENT_ORDERS } from "../../../shared/data/demo-mock-data";
 import { getWorkflowOrders, type WorkflowOrderLive } from "../../../shared/lib/demo-store";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 type Tab = "Today" | "Tomorrow" | "Future";
 
@@ -196,7 +197,7 @@ export function WarehouseAdvanceOrdersPage() {
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge(o.status)}`}>{o.status}</span>
                   </td>
                   <td className="px-5 py-3 text-right font-semibold text-slate-800">
-                    {o.value != null ? `₹${o.value.toLocaleString("en-IN")}` : "—"}
+                    {o.value != null ? formatCurrency(o.value) : "—"}
                   </td>
                 </tr>
               ))}

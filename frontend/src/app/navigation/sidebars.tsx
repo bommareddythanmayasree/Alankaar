@@ -66,7 +66,7 @@ export const WAREHOUSE_NAV: SidebarRegistry = {
   "Dispatch Tracking":    { label: "Dispatch Tracking",      icon: <Truck className="h-4 w-4" /> },
   // Demo additions
   "Production Planning":  { label: "Production Planning",    icon: <Factory className="h-4 w-4" /> },
-  "Delivery Tracking":    { label: "Delivery Tracking",      icon: <PackageCheck className="h-4 w-4" /> },
+  "Delivery Confirmation": { label: "Delivery Confirmation",   icon: <PackageCheck className="h-4 w-4" /> },
   "Collections":          { label: "Collections",            icon: <Banknote className="h-4 w-4" /> },
   "Advance Orders":       { label: "Advance Orders",         icon: <CalendarClock className="h-4 w-4" /> },
   "Orders Workflow":      { label: "Orders Workflow",        icon: <Zap className="h-4 w-4" /> },

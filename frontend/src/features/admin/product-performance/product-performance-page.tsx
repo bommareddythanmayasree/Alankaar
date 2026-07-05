@@ -3,6 +3,7 @@ import { ErpLayout } from "../../shared/erp-layout";
 import { ADMIN_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { ADMIN_SIDEBAR_LABELS } from "../../../shared/data/admin-mock-data";
 import { DEMO_PRODUCT_PERFORMANCE } from "../../../shared/data/demo-mock-data";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 export function ProductPerformancePage() {
   return (
@@ -39,7 +40,7 @@ export function ProductPerformancePage() {
               <CartesianGrid vertical={false} stroke="#EEF2F7" />
               <XAxis dataKey="product" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `₹${(v / 1000).toFixed(0)}k`} />
-              <Tooltip formatter={(v: unknown) => `₹${Number(v).toLocaleString("en-IN")}`} />
+              <Tooltip formatter={(v: unknown) => formatCurrency(Number(v))} />
               <Bar dataKey="revenue" name="Revenue" fill="#1D4ED8" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -71,7 +72,7 @@ export function ProductPerformancePage() {
                     <td className="px-5 py-3 font-medium text-slate-800">{p.product}</td>
                     <td className="px-5 py-3 text-right text-slate-600">{p.demand}</td>
                     <td className="px-5 py-3 text-right text-emerald-700 font-medium">{p.delivery}</td>
-                    <td className="px-5 py-3 text-right font-semibold text-slate-800">₹{p.revenue.toLocaleString("en-IN")}</td>
+                    <td className="px-5 py-3 text-right font-semibold text-slate-800">{formatCurrency(p.revenue)}</td>
                     <td className={`px-5 py-3 text-right font-semibold ${p.shortage > 0 ? "text-red-600" : "text-emerald-600"}`}>{p.shortage}</td>
                     <td className="px-5 py-3 text-center">
                       <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${pct >= 95 ? "bg-emerald-100 text-emerald-700" : pct >= 88 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{pct}%</span>

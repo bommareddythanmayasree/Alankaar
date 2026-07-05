@@ -14,6 +14,7 @@ import { useCart } from "../../../app/branch/branch-context";
 import { placeOrder as demoPlaceOrder, getCurrentDemoBranchName, saveSubmittedOrder, saveWarehouseOrder, saveWorkflowOrder } from "../../../shared/lib/demo-store";
 import { useWarehouseProducts } from "../../../app/warehouse/warehouse-context";
 import { getProductUnit } from "../../../shared/utils/product-units";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 const LIFECYCLE_STEPS = [
   { label: "Order Submitted",      icon: <ClipboardList className="h-4 w-4" /> },
@@ -38,8 +39,12 @@ export function CheckoutPage() {
   const totalQty = useMemo(() => cartItems.reduce((s, i) => s + i.quantity, 0), [cartItems]);
   const estimatedValue = useMemo(() => cartItems.reduce((s, i) => s + i.price * i.quantity, 0), [cartItems]);
 
-  // Items flagged urgent kept from cart (simplified: no direct priority state here)
-  const urgentItems = cartItems.filter(i => i.quantity >= 10); // treat high-qty as urgent for demo
+  // Read priorities saved from Review Order step and filter only explicitly marked urgent items
+  const priorities: Record<string, "Normal" | "Urgent"> = useMemo(() => {
+    const raw = sessionStorage.getItem("orderPriorities");
+    return raw ? JSON.parse(raw) : {};
+  }, []);
+  const urgentItems = useMemo(() => cartItems.filter(i => priorities[i.id] === "Urgent"), [cartItems, priorities]);
 
   async function handleSubmitOrder() {
     if (cartItems.length === 0) return;
@@ -58,8 +63,7 @@ export function CheckoutPage() {
     // Read slot and priorities saved from Review Order step
     const slotRaw = sessionStorage.getItem("orderSlot") ?? "Morning Dispatch";
     const dispatchSlot = (slotRaw === "Evening Dispatch" ? "Evening Dispatch" : "Morning Dispatch") as "Morning Dispatch" | "Evening Dispatch";
-    const prioritiesRaw = sessionStorage.getItem("orderPriorities");
-    const priorities: Record<string, "Normal" | "Urgent"> = prioritiesRaw ? JSON.parse(prioritiesRaw) : {};
+
 
     const demoItems = cartItems.map(i => {
       const stock = warehouseProducts?.find(s => s.productName.toLowerCase() === i.name.toLowerCase());
@@ -241,7 +245,7 @@ export function CheckoutPage() {
                       </td>
                       <td className="px-5 py-3 text-right font-semibold text-slate-700">{item.quantity} {getProductUnit(item.name)}</td>
                       <td className="px-5 py-3 text-right font-semibold text-slate-700">
-                        ₹{(item.price * item.quantity).toLocaleString("en-IN")}
+                        {formatCurrency(item.price * item.quantity)}
                       </td>
                     </tr>
                   ))}
@@ -303,15 +307,13 @@ export function CheckoutPage() {
                   <span className="text-slate-500">Total Quantity</span>
                   <span className="font-semibold">{totalQty} units</span>
                 </div>
-                {urgentItems.length > 0 && (
-                  <div className="flex justify-between text-red-600">
-                    <span>Urgent Items</span>
-                    <span className="font-semibold">{urgentItems.length}</span>
-                  </div>
-                )}
+                <div className={`flex justify-between ${urgentItems.length > 0 ? "text-red-600" : "text-slate-500"}`}>
+                  <span>Urgent Items</span>
+                  <span className="font-semibold">{urgentItems.length}</span>
+                </div>
                 <div className="border-t border-slate-100 pt-3 flex justify-between">
                   <span className="text-slate-500">Est. Order Value</span>
-                  <span className="text-xl font-bold text-[#0B2C66]">₹{estimatedValue.toLocaleString("en-IN")}</span>
+                  <span className="text-xl font-bold text-[#0B2C66]">{formatCurrency(estimatedValue)}</span>
                 </div>
               </div>
 

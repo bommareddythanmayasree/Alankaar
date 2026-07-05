@@ -773,10 +773,13 @@ export function useWarehouseProducts() {
   return ctx?.products ?? null;
 }
 
-/** Hook for branch portal — reads cross-context notifications, invoices, and payment actions */
+/** Hook for branch portal — reads cross-context notifications, invoices, and payment actions.
+ *  Returns null when called outside WarehouseProvider (e.g. during HMR context identity mismatch).
+ *  Callers must guard: `const wh = useWarehouseForBranch(); if (!wh) return null;`
+ */
 export function useWarehouseForBranch() {
   const ctx = useContext(WarehouseContext);
-  if (!ctx) throw new Error("useWarehouseForBranch must be used within WarehouseProvider");
+  if (!ctx) return null;
   return {
     _instanceId: ctx._instanceId,
     branchNotifications: ctx.branchNotifications,

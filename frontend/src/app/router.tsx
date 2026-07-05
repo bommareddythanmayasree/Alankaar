@@ -27,7 +27,7 @@ import { WarehouseNotificationsPage } from "../features/warehouse/notifications/
 import { WarehouseSettingsPage } from "../features/warehouse/settings/warehouse-settings-page";
 // Demo warehouse pages
 import { ProductionPlanningPage } from "../features/warehouse/production-planning/production-planning-page";
-import { DeliveryTrackingPage } from "../features/warehouse/delivery-tracking/delivery-tracking-page";
+import { DeliveryTrackingPage, DeliveryConfirmationPage } from "../features/warehouse/delivery-tracking/delivery-tracking-page";
 import { CollectionsPage } from "../features/warehouse/collections/collections-page";
 import { WarehouseAdvanceOrdersPage } from "../features/warehouse/advance-orders/advance-orders-page";
 // Branch pages
@@ -414,6 +414,16 @@ export const router = createBrowserRouter([
       <WarehouseShell>
         <Protected role="WAREHOUSE_MANAGER">
           <DeliveryTrackingPage />
+        </Protected>
+      </WarehouseShell>
+    ),
+  },
+  {
+    path: "/warehouse/delivery-confirmation",
+    element: (
+      <WarehouseShell>
+        <Protected role="WAREHOUSE_MANAGER">
+          <DeliveryConfirmationPage />
         </Protected>
       </WarehouseShell>
     ),

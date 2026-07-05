@@ -4,6 +4,7 @@ import { ErpLayout } from "../../shared/erp-layout";
 import { ADMIN_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { ADMIN_SIDEBAR_LABELS } from "../../../shared/data/admin-mock-data";
 import { DEMO_BI_SUMMARY, DEMO_DEMAND_TREND } from "../../../shared/data/demo-mock-data";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 const s = DEMO_BI_SUMMARY;
 
@@ -63,7 +64,7 @@ export function BusinessIntelligencePage() {
                 <CartesianGrid stroke="#EEF2F7" />
                 <XAxis dataKey="day" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v: unknown) => `₹${Number(v).toLocaleString("en-IN")}`} />
+                <Tooltip formatter={(v: unknown) => formatCurrency(Number(v))} />
                 <Legend />
                 <Line dataKey="requested" name="Requested" stroke="#6366f1" strokeWidth={2} dot={{ r: 4 }} />
                 <Line dataKey="delivered" name="Delivered" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
@@ -88,7 +89,7 @@ export function BusinessIntelligencePage() {
                 <CartesianGrid horizontal={false} stroke="#EEF2F7" />
                 <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
                 <YAxis type="category" dataKey="branch" tick={{ fontSize: 11 }} width={90} />
-                <Tooltip formatter={(v: unknown) => `₹${Number(v).toLocaleString("en-IN")}`} />
+                <Tooltip formatter={(v: unknown) => formatCurrency(Number(v))} />
                 <Legend />
                 <Bar dataKey="collected" name="Collected" fill="#10b981" radius={[0, 4, 4, 0]} />
                 <Bar dataKey="outstanding" name="Outstanding" fill="#f97316" radius={[0, 4, 4, 0]} />

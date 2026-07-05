@@ -4,6 +4,10 @@
  * All pages read/write through these helpers — no direct localStorage calls elsewhere.
  */
 
+import { DEMO_BRANCH_ACCOUNTS } from "../data/demo-mock-data";
+import { WAREHOUSE_STOCK_ITEMS } from "../data/warehouse-mock-data";
+import { formatCurrency } from "../utils/format-currency";
+
 // ── Keys ──────────────────────────────────────────────────────────────────────
 
 const KEYS = {
@@ -23,6 +27,7 @@ const KEYS = {
   PRODUCT_APPROVAL_MAP: "demoProductApprovalMap", // Record<productId, "Approved"|"Rejected">
   DELIVERY_EXCEPTIONS: "demoDeliveryExceptions", // DeliveryExceptionRecord[]
   DISPATCH_ASSIGNMENTS: "demoDispatchAssignments", // DispatchAssignment[]
+  DISPATCH_BATCHES: "demoDispatchBatches",       // DispatchBatch[]
   DELIVERY_DISCREPANCIES: "demoDeliveryDiscrepancies", // DeliveryDiscrepancy[]
   DRIVER_POOL: "demoDriverPool",                 // DriverRecord[]
   VEHICLE_POOL: "demoVehiclePool",               // VehicleRecord[]
@@ -225,6 +230,19 @@ export function getVehiclePool(): VehicleRecord[] {
   return stored;
 }
 
+/**
+ * Reset all drivers and vehicles back to Available.
+ * Clears any Assigned/Off-Duty state — useful in the demo when you
+ * want to re-dispatch without restarting the application.
+ */
+export function resetDriverVehiclePool() {
+  write(KEYS.DRIVER_POOL, SEED_DRIVERS);
+  write(KEYS.VEHICLE_POOL, SEED_VEHICLES);
+  write(KEYS.DISPATCH_ASSIGNMENTS, []);
+  broadcastChange(KEYS.DRIVER_POOL);
+  broadcastChange(KEYS.VEHICLE_POOL);
+}
+
 function saveDriverPool(drivers: DriverRecord[]) {
   write(KEYS.DRIVER_POOL, drivers);
   broadcastChange(KEYS.DRIVER_POOL);
@@ -302,6 +320,380 @@ export function releaseDispatchAssignment(orderId: string) {
   saveVehiclePool(getVehiclePool().map(v =>
     v.id === a.vehicleId ? { ...v, status: "Available", assignedOrderId: undefined } : v
   ));
+}
+
+// ── Dispatch Batches (multi-batch per order) ──────────────────────────────────
+
+export type DispatchBatchStatus = "Scheduled" | "In Transit" | "Delivered";
+
+export type DispatchBatchProduct = {
+  product: string;
+  unit: string;
+  qty: number;
+};
+
+export type DispatchBatch = {
+  batchId: string;
+  orderId: string;
+  batchNumber: number;         // 1, 2, 3…
+  slot: "Morning" | "Evening";
+  driverId: string;
+  driverName: string;
+  vehicleId: string;
+  vehicleNumber: string;
+  dispatchTime: string;        // "06:30 AM" | "03:00 PM"
+  status: DispatchBatchStatus;
+  products: DispatchBatchProduct[];
+  createdAt: string;
+  deliveredAt?: string;
+  /** Per-product delivery lines filled when batch is confirmed delivered */
+  deliveryLines?: ProductDeliveryLine[];
+};
+
+export function getDispatchBatches(): DispatchBatch[] {
+  return read<DispatchBatch[]>(KEYS.DISPATCH_BATCHES, []);
+}
+
+export function getDispatchBatchesForOrder(orderId: string): DispatchBatch[] {
+  return getDispatchBatches().filter(b => b.orderId === orderId);
+}
+
+/**
+ * Returns order products that have NOT yet been assigned to any dispatch batch.
+ * Use this to populate the product selector when creating a new batch —
+ * ensures each product belongs to exactly ONE batch.
+ */
+export function getUnassignedOrderProducts(orderId: string, orderItems: WorkflowOrderItemLive[]): WorkflowOrderItemLive[] {
+  const batches = getDispatchBatchesForOrder(orderId);
+  // Collect all product names already assigned to any batch for this order
+  const assignedProducts = new Set<string>();
+  for (const batch of batches) {
+    for (const p of batch.products) {
+      assignedProducts.add(p.product);
+    }
+  }
+  return orderItems.filter(item => !assignedProducts.has(item.product));
+}
+
+/** Create a new dispatch batch for an order. Driver/vehicle marked Assigned for this batch. */
+export function addDispatchBatch(
+  orderId: string,
+  slot: "Morning" | "Evening",
+  driverId: string,
+  vehicleId: string,
+  products: DispatchBatchProduct[],
+): DispatchBatch | null {
+  const drivers = getDriverPool();
+  const vehicles = getVehiclePool();
+  const driver = drivers.find(d => d.id === driverId);
+  const vehicle = vehicles.find(v => v.id === vehicleId);
+  if (!driver || !vehicle) return null;
+
+  // Mark them assigned (allow reassignment across batches for demo flexibility)
+  saveDriverPool(drivers.map(d =>
+    d.id === driverId ? { ...d, status: "Assigned" as const, assignedOrderId: orderId } : d
+  ));
+  saveVehiclePool(vehicles.map(v =>
+    v.id === vehicleId ? { ...v, status: "Assigned" as const, assignedOrderId: orderId } : v
+  ));
+
+  const existing = getDispatchBatches();
+  const orderBatches = existing.filter(b => b.orderId === orderId);
+  const batchNumber = orderBatches.length + 1;
+
+  const batch: DispatchBatch = {
+    batchId: `BATCH-${orderId}-${batchNumber}`,
+    orderId,
+    batchNumber,
+    slot,
+    driverId,
+    driverName: driver.name,
+    vehicleId,
+    vehicleNumber: vehicle.number,
+    dispatchTime: slot === "Morning" ? "06:30 AM" : "03:00 PM",
+    status: "Scheduled",
+    products,
+    createdAt: nowStr(),
+  };
+
+  write(KEYS.DISPATCH_BATCHES, [batch, ...existing]);
+  broadcastChange(KEYS.DISPATCH_BATCHES);
+
+  // Also save a legacy DispatchAssignment for backward-compat with pages that call getDispatchAssignment()
+  const legacyAssignment: DispatchAssignment = {
+    orderId,
+    driverId,
+    driverName: driver.name,
+    vehicleId,
+    vehicleNumber: vehicle.number,
+    slot,
+    dispatchTime: batch.dispatchTime,
+    assignedAt: batch.createdAt,
+  };
+  const existingAssignments = getDispatchAssignments().filter(a => a.orderId !== orderId);
+  write(KEYS.DISPATCH_ASSIGNMENTS, [legacyAssignment, ...existingAssignments]);
+  broadcastChange(KEYS.DISPATCH_ASSIGNMENTS);
+
+  // Keep order in "Ready For Dispatch" — status only advances when first batch is dispatched
+  pushWarehouseNotif({
+    type: "delivery",
+    title: "Dispatch Batch Created",
+    message: `Batch ${batchNumber} (${slot}) created for order ${orderId} — ${driver.name} / ${vehicle.number}.`,
+  });
+
+  return batch;
+}
+
+/** Update a dispatch batch's status (Scheduled → In Transit only via orders-workflow).
+ *  "Delivered" status is set exclusively via confirmBatchDelivery().
+ *  NOTE: callers should also update the parent order status via updateWorkflowOrderStatus
+ *  when advancing to "In Transit" so all pages stay in sync. */
+export function updateDispatchBatchStatus(
+  batchId: string,
+  status: DispatchBatchStatus,
+  deliveryLines?: ProductDeliveryLine[],
+): void {
+  const batches = getDispatchBatches();
+  const updated = batches.map(b => {
+    if (b.batchId !== batchId) return b;
+    return {
+      ...b,
+      status,
+      deliveredAt: status === "Delivered" ? nowStr() : b.deliveredAt,
+      deliveryLines: deliveryLines ?? b.deliveryLines,
+    };
+  });
+  write(KEYS.DISPATCH_BATCHES, updated);
+  broadcastChange(KEYS.DISPATCH_BATCHES);
+}
+
+/**
+ * Mark a dispatch batch "In Transit" and synchronise the parent order status.
+ * This is the correct entry point from Orders Workflow — it updates both the
+ * batch and the order in a single atomic write so Delivery Confirmation
+ * immediately shows the batch without requiring a page refresh.
+ */
+export function markBatchInTransit(batchId: string): void {
+  const batches = getDispatchBatches();
+  const batch = batches.find(b => b.batchId === batchId);
+  if (!batch || batch.status !== "Scheduled") return;
+
+  // 1. Update batch status
+  const updatedBatches = batches.map(b =>
+    b.batchId === batchId ? { ...b, status: "In Transit" as DispatchBatchStatus } : b
+  );
+  write(KEYS.DISPATCH_BATCHES, updatedBatches);
+  broadcastChange(KEYS.DISPATCH_BATCHES);
+
+  // 2. Advance parent order to "In Transit" if it isn't already past that stage.
+  // Order status is always derived from batch state — never set independently by pages.
+  const orders = getWorkflowOrders();
+  const order = orders.find(o => o.id === batch.orderId);
+  const alreadyAdvanced = order && (
+    order.status === "In Transit" || order.status === "Delivered" ||
+    order.status === "Partially Delivered" || order.status === "Awaiting Invoice" ||
+    order.status === "Invoice Generated" || order.status === "Payment Pending" ||
+    order.status === "Payment Verification Pending" || order.status === "Payment Completed" ||
+    order.status === "Order Closed"
+  );
+  if (order && !alreadyAdvanced) {
+    const updatedOrders = orders.map(o =>
+      o.id === batch.orderId ? { ...o, status: "In Transit" as WorkflowLifecycleStatus } : o
+    );
+    write(WORKFLOW_ORDERS_KEY, updatedOrders);
+    broadcastChange(WORKFLOW_ORDERS_KEY);
+  }
+}
+
+/**
+ * Confirm delivery for a specific dispatch batch.
+ * Saves delivery lines on the batch, marks it "Delivered", saves a
+ * BatchDeliveryConfirmation, then derives the parent order status from
+ * all batch statuses.
+ *
+ * Order status rules:
+ *   - No delivered batches         → In Transit (unchanged)
+ *   - Some delivered, some pending → Partially Delivered
+ *   - All batches delivered        → Awaiting Invoice
+ */
+export function confirmBatchDelivery(
+  batchId: string,
+  deliveryLines: ProductDeliveryLine[],
+): void {
+  const now = new Date();
+  const confirmedAt = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    + ", " + now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+
+  // 1. Update the batch record
+  const batches = getDispatchBatches();
+  const updated = batches.map(b => {
+    if (b.batchId !== batchId) return b;
+    return { ...b, status: "Delivered" as DispatchBatchStatus, deliveredAt: nowStr(), deliveryLines };
+  });
+  write(KEYS.DISPATCH_BATCHES, updated);
+  broadcastChange(KEYS.DISPATCH_BATCHES);
+
+  const batch = updated.find(b => b.batchId === batchId);
+  if (!batch) return;
+
+  // 2. Save a BatchDeliveryConfirmation for this batch
+  const allDelivered = deliveryLines.every(l => l.status === "Delivered");
+  const noneDelivered = deliveryLines.every(l => l.status === "Not Delivered");
+  const batchOverallStatus: ProductDeliveryStatus | "Delivered Successfully" =
+    allDelivered ? "Delivered Successfully"
+    : noneDelivered ? "Not Delivered"
+    : "Partial Delivery";
+  const batchInvoicedValue = Math.round(
+    deliveryLines.reduce((s, l) => s + l.deliveredQty * getProductSellingPrice(l.product), 0)
+  );
+  const orders = getWorkflowOrders();
+  const parentOrder = orders.find(o => o.id === batch.orderId);
+  const batchConf: BatchDeliveryConfirmation = {
+    batchId,
+    orderId: batch.orderId,
+    batchNumber: batch.batchNumber,
+    branch: parentOrder?.branch ?? "",
+    confirmedAt,
+    lines: deliveryLines,
+    invoicedValue: batchInvoicedValue,
+    overallStatus: batchOverallStatus,
+    invoiced: false,
+  };
+  const existingBatchConfs = getBatchDeliveryConfirmations().filter(c => c.batchId !== batchId);
+  write(BATCH_DELIVERY_CONFIRMATIONS_KEY, [batchConf, ...existingBatchConfs]);
+  broadcastChange(BATCH_DELIVERY_CONFIRMATIONS_KEY);
+
+  // 3. Derive parent order status from all batch statuses
+  _updateOrderStatusFromBatches(batch.orderId, updated);
+}
+
+/**
+ * Derive and update the parent order status from all its batch statuses.
+ *
+ * Rules:
+ *   - No delivered batches         → stays In Transit / Partially Delivered (unchanged beyond "In Transit")
+ *   - Some delivered, some pending → Partially Delivered
+ *   - All batches delivered        → Awaiting Invoice (aggregate confirmation saved)
+ */
+function _updateOrderStatusFromBatches(orderId: string, allBatches: DispatchBatch[]) {
+  const orderBatches = allBatches.filter(b => b.orderId === orderId);
+  if (orderBatches.length === 0) return;
+
+  const allDelivered = orderBatches.every(b => b.status === "Delivered");
+  const someDelivered = orderBatches.some(b => b.status === "Delivered");
+  const hasPending = orderBatches.some(b => b.status === "Scheduled" || b.status === "In Transit");
+
+  const orders = getWorkflowOrders();
+  const order = orders.find(o => o.id === orderId);
+  if (!order) return;
+
+  // Already past delivery — don't regress
+  const alreadyAdvanced = (
+    order.status === "Awaiting Invoice" || order.status === "Invoice Generated" ||
+    order.status === "Payment Pending" || order.status === "Payment Verification Pending" ||
+    order.status === "Payment Completed" || order.status === "Order Closed"
+  );
+  if (alreadyAdvanced) return;
+
+  if (allDelivered) {
+    // Aggregate delivery lines from all batches into an order-level confirmation
+    const lineMap: Record<string, ProductDeliveryLine> = {};
+    for (const batch of orderBatches) {
+      for (const line of (batch.deliveryLines ?? [])) {
+        if (lineMap[line.product]) {
+          const existing = lineMap[line.product];
+          const deliveredQty = existing.deliveredQty + line.deliveredQty;
+          const loadedQty = existing.loadedQty + line.loadedQty;
+          const pendingQty = loadedQty - deliveredQty;
+          lineMap[line.product] = {
+            ...existing,
+            loadedQty,
+            deliveredQty,
+            pendingQty,
+            status: deriveOverallProductStatus(loadedQty, deliveredQty),
+            reason: line.reason || existing.reason,
+          };
+        } else {
+          lineMap[line.product] = { ...line };
+        }
+      }
+    }
+    const lines = Object.values(lineMap);
+    const allLinesDelivered = lines.every(l => l.status === "Delivered");
+    const noneLinesDelivered = lines.every(l => l.status === "Not Delivered");
+    const overallStatus: ProductDeliveryStatus | "Delivered Successfully" =
+      allLinesDelivered ? "Delivered Successfully"
+      : noneLinesDelivered ? "Not Delivered"
+      : "Partial Delivery";
+    const invoicedValue = Math.round(
+      lines.reduce((s, l) => s + l.deliveredQty * getProductSellingPrice(l.product), 0)
+    );
+    const now = new Date();
+    const deliveredDate = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const deliveredTime = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+    const confirmation: OrderDeliveryConfirmation = {
+      orderId,
+      branch: order.branch,
+      confirmedAt: `${deliveredDate}, ${deliveredTime}`,
+      lines,
+      invoicedValue,
+      overallStatus,
+    };
+    const existingConfs = getOrderDeliveryConfirmations().filter(c => c.orderId !== orderId);
+    write(ORDER_DELIVERY_CONFIRMATIONS_KEY, [confirmation, ...existingConfs]);
+    broadcastChange(ORDER_DELIVERY_CONFIRMATIONS_KEY);
+
+    // Advance order to Awaiting Invoice
+    const updatedOrders = orders.map(o =>
+      o.id === orderId
+        ? { ...o, status: "Awaiting Invoice" as WorkflowLifecycleStatus, deliveredDate, deliveredTime }
+        : o
+    );
+    write(WORKFLOW_ORDERS_KEY, updatedOrders);
+    broadcastChange(WORKFLOW_ORDERS_KEY);
+
+    // Release all drivers/vehicles
+    const allDriverIds = [...new Set(orderBatches.map(b => b.driverId))];
+    const allVehicleIds = [...new Set(orderBatches.map(b => b.vehicleId))];
+    saveDriverPool(getDriverPool().map(d =>
+      allDriverIds.includes(d.id) ? { ...d, status: "Available" as const, assignedOrderId: undefined } : d
+    ));
+    saveVehiclePool(getVehiclePool().map(v =>
+      allVehicleIds.includes(v.id) ? { ...v, status: "Available" as const, assignedOrderId: undefined } : v
+    ));
+
+    const isPartial = overallStatus === "Partial Delivery";
+    pushBranchNotif({
+      type: "delivery",
+      title: isPartial ? "Partial Delivery Confirmed" : "Delivery Confirmed",
+      message: `All batches for order ${orderId} confirmed. Invoice will be generated shortly.`,
+    });
+    pushWarehouseNotif({
+      type: "delivery",
+      title: "All Batches Confirmed — Awaiting Invoice",
+      message: `All dispatch batches for order ${orderId} (${order.branch}) have been confirmed. Please generate invoice.`,
+    });
+  } else if (someDelivered && hasPending) {
+    // Partially delivered — update order status only if not already partial
+    if (order.status !== "Partially Delivered") {
+      const updatedOrders = orders.map(o =>
+        o.id === orderId ? { ...o, status: "Partially Delivered" as WorkflowLifecycleStatus } : o
+      );
+      write(WORKFLOW_ORDERS_KEY, updatedOrders);
+      broadcastChange(WORKFLOW_ORDERS_KEY);
+    }
+    pushBranchNotif({
+      type: "delivery",
+      title: "Batch Delivered",
+      message: `A batch for order ${orderId} has been delivered. Remaining batches are still in transit.`,
+    });
+  }
+}
+
+function deriveOverallProductStatus(loadedQty: number, deliveredQty: number): ProductDeliveryStatus {
+  if (deliveredQty >= loadedQty) return "Delivered";
+  if (deliveredQty === 0)        return "Not Delivered";
+  return "Partial Delivery";
 }
 
 // ── Delivery Discrepancy (Branch Report Difference) ───────────────────────────
@@ -893,8 +1285,6 @@ export function resetDemoData() {
 
 export const DEMO_BRANCH_KEY = "demo_branch_id";
 
-import { DEMO_BRANCH_ACCOUNTS } from "../data/demo-mock-data";
-
 /**
  * Returns the currently selected demo branch name (e.g. "Gandhi Nagar").
  * Falls back to "Gandhi Nagar" if nothing is stored.
@@ -974,8 +1364,6 @@ const WAREHOUSE_ORDERS_KEY = "warehouseOrders";
 
 // ── Product Price Lookup ──────────────────────────────────────────────────────
 
-import { WAREHOUSE_STOCK_ITEMS } from "../data/warehouse-mock-data";
-
 /**
  * Look up the selling price for a product by name using the canonical catalog.
  * Returns 0 if not found.
@@ -1041,8 +1429,11 @@ export type WorkflowLifecycleStatus =
   | "Evening Dispatch"
   | "In Transit"
   | "Delivered"
+  | "Partially Delivered"
+  | "Awaiting Invoice"
   | "Invoice Generated"
   | "Payment Pending"
+  | "Payment Verification Pending"
   | "Payment Completed"
   | "Order Closed";
 
@@ -1058,8 +1449,11 @@ export const WORKFLOW_LIFECYCLE_SEQUENCE: WorkflowLifecycleStatus[] = [
   "Evening Dispatch",
   "In Transit",
   "Delivered",
+  "Partially Delivered",
+  "Awaiting Invoice",
   "Invoice Generated",
   "Payment Pending",
+  "Payment Verification Pending",
   "Payment Completed",
   "Order Closed",
 ];
@@ -1106,13 +1500,25 @@ export function getWorkflowOrders(): WorkflowOrderLive[] {
 }
 
 /**
- * Seed workflow orders from static mock data if localStorage is empty.
+ * Increment this version whenever the static mock order list changes
+ * (e.g. new orders added, statuses updated). Forces a re-seed on next load.
+ */
+const WORKFLOW_SEED_VERSION = "v3";
+const WORKFLOW_SEED_VERSION_KEY = "workflowOrdersSeedVersion";
+
+/**
+ * Seed workflow orders from static mock data.
+ * Re-seeds automatically when WORKFLOW_SEED_VERSION changes so that new
+ * mock orders (e.g. "Payment Verification Pending") always appear even if
+ * the user has stale localStorage data from a previous session.
  * Call once at app startup (e.g. in App.tsx or router).
  */
 export function initWorkflowOrders(staticOrders: WorkflowOrderLive[]) {
+  const storedVersion = read<string>(WORKFLOW_SEED_VERSION_KEY, "");
   const existing = getWorkflowOrders();
-  if (existing.length === 0) {
+  if (existing.length === 0 || storedVersion !== WORKFLOW_SEED_VERSION) {
     write(WORKFLOW_ORDERS_KEY, staticOrders);
+    write(WORKFLOW_SEED_VERSION_KEY, WORKFLOW_SEED_VERSION);
   }
 }
 
@@ -1122,9 +1528,19 @@ export function saveWorkflowOrder(order: WorkflowOrderLive) {
   broadcastChange(WORKFLOW_ORDERS_KEY);
 }
 
+/** Statuses that mean an order is complete and resources should be freed */
+const RELEASE_STATUSES: WorkflowLifecycleStatus[] = [
+  "Delivered",
+  "Awaiting Invoice",
+  "Invoice Generated",
+  "Payment Completed",
+  "Order Closed",
+];
+
 /** Update a single workflow order's status and notify all pages.
  *  If the order doesn't exist in workflowOrders yet, optionally seed it first.
- *  When status reaches "Payment Completed", automatically advances to "Order Closed". */
+ *  When status reaches "Payment Completed", automatically advances to "Order Closed".
+ *  When status reaches a terminal delivery/payment stage, releases assigned driver & vehicle. */
 export function updateWorkflowOrderStatus(
   orderId: string,
   status: WorkflowLifecycleStatus,
@@ -1145,6 +1561,12 @@ export function updateWorkflowOrderStatus(
 
   write(WORKFLOW_ORDERS_KEY, updated);
   broadcastChange(WORKFLOW_ORDERS_KEY);
+
+  // Release driver & vehicle when order reaches a terminal stage
+  if (RELEASE_STATUSES.includes(finalStatus)) {
+    releaseDispatchAssignment(orderId);
+  }
+
   const order = updated.find(o => o.id === orderId);
   if (order) {
     _notifyBranchForStatus(order, finalStatus);
@@ -1171,8 +1593,10 @@ function _notifyBranchForStatus(order: WorkflowOrderLive, status: WorkflowLifecy
     "Evening Dispatch":    { title: "Out For Delivery", msg: `Your order ${order.id} has been dispatched (Evening).` },
     "In Transit":          { title: "Order In Transit", msg: `Your order ${order.id} is on its way to ${order.branch}.` },
     "Delivered":           { title: "Order Delivered", msg: `Your order ${order.id} has been delivered.` },
+    "Awaiting Invoice":    { title: "Delivery Confirmed", msg: `Your order ${order.id} has been delivered. Invoice will be generated shortly.` },
     "Invoice Generated":   { title: "Invoice Generated", msg: `Invoice has been generated for order ${order.id}.` },
     "Payment Pending":     { title: "Payment Pending", msg: `Payment is pending for order ${order.id}.` },
+    "Payment Verification Pending": { title: "Payment Verification Pending", msg: `Payment for order ${order.id} is awaiting warehouse verification.` },
     "Payment Completed":   { title: "Payment Completed", msg: `Payment completed for order ${order.id}.` },
     "Order Closed":        { title: "Order Closed", msg: `Order ${order.id} has been closed.` },
   };
@@ -1209,6 +1633,333 @@ export function resetProductionProgress() {
   localStorage.removeItem(PRODUCTION_PROGRESS_KEY);
 }
 
+// ── Per-Product Delivery Confirmation ─────────────────────────────────────────
+// Stores the warehouse-side per-product delivery data (loaded qty, delivered qty,
+// pending qty, reason). Separate from the old DeliveryExceptionRecord.
+
+export type ProductDeliveryStatus = "Delivered" | "Partial Delivery" | "Pending Delivery" | "Not Delivered";
+
+export type ProductDeliveryLine = {
+  product: string;
+  unit: string;
+  orderedQty: number;
+  loadedQty: number;
+  deliveredQty: number;
+  pendingQty: number;     // auto: loadedQty - deliveredQty
+  status: ProductDeliveryStatus;
+  reason: string;         // logistics reason when deliveredQty < orderedQty
+};
+
+/** Delivery reasons — shown only when Pending Qty > 0 */
+export const LOGISTICS_REASONS = [
+  "Shop Closed",
+  "Customer Not Available",
+  "Customer Refused Delivery",
+  "Product Damaged During Transit",
+  "Product Missing",
+  "Short Loaded",
+  "Wrong Product Loaded",
+  "Vehicle Breakdown",
+  "Traffic Delay",
+  "Returned by Branch",
+  "Storage Capacity Full",
+  "Other",
+] as const;
+
+export type LogisticsReason = typeof LOGISTICS_REASONS[number];
+
+export type OrderDeliveryConfirmation = {
+  orderId: string;
+  branch: string;
+  confirmedAt: string;
+  lines: ProductDeliveryLine[];
+  /** Sum of delivered values (for invoice) */
+  invoicedValue: number;
+  /** Overall delivery status */
+  overallStatus: ProductDeliveryStatus | "Delivered Successfully";
+};
+
+/** Per-batch delivery confirmation — created immediately when a batch is confirmed delivered. */
+export type BatchDeliveryConfirmation = {
+  batchId: string;
+  orderId: string;
+  batchNumber: number;
+  branch: string;
+  confirmedAt: string;
+  lines: ProductDeliveryLine[];
+  invoicedValue: number;
+  overallStatus: ProductDeliveryStatus | "Delivered Successfully";
+  /** Invoice number set by generateInvoiceFromBatch() */
+  invoiceNumber?: string;
+  /** True once an invoice has been generated for this batch */
+  invoiced?: boolean;
+};
+
+const ORDER_DELIVERY_CONFIRMATIONS_KEY = "orderDeliveryConfirmations";
+const BATCH_DELIVERY_CONFIRMATIONS_KEY = "batchDeliveryConfirmations";
+
+export function getOrderDeliveryConfirmations(): OrderDeliveryConfirmation[] {
+  return read<OrderDeliveryConfirmation[]>(ORDER_DELIVERY_CONFIRMATIONS_KEY, []);
+}
+
+export function getOrderDeliveryConfirmation(orderId: string): OrderDeliveryConfirmation | undefined {
+  return getOrderDeliveryConfirmations().find(c => c.orderId === orderId);
+}
+
+export function getBatchDeliveryConfirmations(): BatchDeliveryConfirmation[] {
+  return read<BatchDeliveryConfirmation[]>(BATCH_DELIVERY_CONFIRMATIONS_KEY, []);
+}
+
+export function getBatchDeliveryConfirmation(batchId: string): BatchDeliveryConfirmation | undefined {
+  return getBatchDeliveryConfirmations().find(c => c.batchId === batchId);
+}
+
+export function getBatchDeliveryConfirmationsForOrder(orderId: string): BatchDeliveryConfirmation[] {
+  return getBatchDeliveryConfirmations().filter(c => c.orderId === orderId);
+}
+
+/**
+ * Warehouse confirms delivery per product.
+ * - Saves per-product delivery lines.
+ * - Advances order to "Awaiting Invoice" (warehouse must then manually generate invoice).
+ * - Does NOT auto-generate invoice.
+ */
+export function confirmDeliveryPerProduct(confirmation: OrderDeliveryConfirmation) {
+  const existing = getOrderDeliveryConfirmations().filter(c => c.orderId !== confirmation.orderId);
+  write(ORDER_DELIVERY_CONFIRMATIONS_KEY, [confirmation, ...existing]);
+  broadcastChange(ORDER_DELIVERY_CONFIRMATIONS_KEY);
+
+  const now = new Date();
+  const deliveredDate = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const deliveredTime = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+
+  const orders = getWorkflowOrders();
+  const updated = orders.map(o =>
+    o.id === confirmation.orderId
+      ? { ...o, status: "Awaiting Invoice" as WorkflowLifecycleStatus, deliveredDate, deliveredTime }
+      : o
+  );
+  write(WORKFLOW_ORDERS_KEY, updated);
+  broadcastChange(WORKFLOW_ORDERS_KEY);
+
+  // Release driver & vehicle — delivery is complete
+  releaseDispatchAssignment(confirmation.orderId);
+
+  const isPartial = confirmation.overallStatus === "Partial Delivery";
+  pushBranchNotif({
+    type: "delivery",
+    title: isPartial ? "Partial Delivery Confirmed" : "Delivery Confirmed",
+    message: `Order ${confirmation.orderId} has been delivered to ${confirmation.branch}. Invoice will be generated shortly.`,
+  });
+  pushWarehouseNotif({
+    type: "delivery",
+    title: "Delivery Confirmed — Awaiting Invoice",
+    message: `Delivery confirmed for order ${confirmation.orderId} (${confirmation.branch}). Please review and generate invoice.`,
+  });
+}
+
+/**
+ * Warehouse manually generates invoice after reviewing delivery.
+ * Uses delivered qty from the confirmation record.
+ * Advances order from "Awaiting Invoice" → "Payment Pending".
+ * Branch then pays via Pay button → Payment Verification Pending → Warehouse marks received → Payment Completed → Order Closed.
+ */
+export function generateInvoiceFromDelivery(orderId: string): string | null {
+  const orders = getWorkflowOrders();
+  const order = orders.find(o => o.id === orderId);
+  if (!order) return null;
+  if (order.status !== "Awaiting Invoice") return null;
+
+  const confirmation = getOrderDeliveryConfirmation(orderId);
+  // Always recalculate invoicedValue from delivered lines × current selling prices.
+  // This prevents stale/incorrect values stored in confirmation.invoicedValue
+  // (e.g. when getProductSellingPrice returned 0 at the time of delivery confirmation)
+  // from propagating to the invoice and all downstream pages.
+  const invoicedValue = confirmation
+    ? Math.round(
+        confirmation.lines.reduce(
+          (s, l) => s + l.deliveredQty * getProductSellingPrice(l.product),
+          0
+        )
+      )
+    : order.value;
+  const invoiceNumber = nextDemoInvoiceNumber();
+
+  const updated = orders.map(o =>
+    o.id === orderId
+      ? {
+          ...o,
+          status: "Payment Pending" as WorkflowLifecycleStatus,
+          invoiceNumber,
+          value: invoicedValue,
+        }
+      : o
+  );
+  write(WORKFLOW_ORDERS_KEY, updated);
+  broadcastChange(WORKFLOW_ORDERS_KEY);
+
+  pushBranchNotif({
+    type: "invoice_generated",
+    title: "Invoice Generated",
+    message: `Invoice ${invoiceNumber} has been generated for your order ${orderId}. Please proceed with payment.`,
+  });
+  pushWarehouseNotif({
+    type: "invoice_generated",
+    title: "Invoice Generated",
+    message: `Invoice ${invoiceNumber} generated for order ${orderId} (${order.branch}) — ${formatCurrency(invoicedValue)}.`,
+  });
+  pushAdminNotif({
+    type: "invoice_generated",
+    title: "Invoice Generated",
+    message: `Invoice ${invoiceNumber} generated for order ${orderId} — ${formatCurrency(invoicedValue)}.`,
+  });
+
+  return invoiceNumber;
+}
+
+/**
+ * Generate an invoice for a single delivered batch.
+ * Can be called as soon as a batch status = "Delivered", regardless of other batches.
+ * Marks the batch confirmation as invoiced and advances the order to "Payment Pending"
+ * (or leaves it in "Partially Delivered" if other batches are still pending).
+ */
+export function generateInvoiceFromBatch(batchId: string): string | null {
+  const conf = getBatchDeliveryConfirmation(batchId);
+  if (!conf || conf.invoiced) return null;
+
+  const orders = getWorkflowOrders();
+  const order = orders.find(o => o.id === conf.orderId);
+  if (!order) return null;
+
+  const invoicedValue = Math.round(
+    conf.lines.reduce((s, l) => s + l.deliveredQty * getProductSellingPrice(l.product), 0)
+  );
+  const invoiceNumber = nextDemoInvoiceNumber();
+
+  // Mark batch confirmation as invoiced
+  const updatedBatchConfs = getBatchDeliveryConfirmations().map(c =>
+    c.batchId === batchId ? { ...c, invoiced: true, invoiceNumber } : c
+  );
+  write(BATCH_DELIVERY_CONFIRMATIONS_KEY, updatedBatchConfs);
+  broadcastChange(BATCH_DELIVERY_CONFIRMATIONS_KEY);
+
+  // Check if all batch confirmations for this order are now invoiced
+  const allBatchConfs = updatedBatchConfs.filter(c => c.orderId === conf.orderId);
+  const allBatches = getDispatchBatchesForOrder(conf.orderId);
+  const allDeliveredBatchesInvoiced = allBatches
+    .filter(b => b.status === "Delivered")
+    .every(b => allBatchConfs.find(c => c.batchId === b.batchId)?.invoiced);
+  const allBatchesDelivered = allBatches.every(b => b.status === "Delivered");
+
+  // Advance order: if all batches delivered and all invoiced → Payment Pending
+  // If partial but this batch is invoiced → remains Partially Delivered
+  let newOrderStatus: WorkflowLifecycleStatus | null = null;
+  if (allBatchesDelivered && allDeliveredBatchesInvoiced) {
+    newOrderStatus = "Payment Pending";
+  } else if (order.status === "Awaiting Invoice" && !allBatchesDelivered) {
+    // Some batches still pending — keep as Partially Delivered
+    newOrderStatus = "Partially Delivered";
+  }
+
+  if (newOrderStatus) {
+    const updatedOrders = orders.map(o =>
+      o.id === conf.orderId
+        ? { ...o, status: newOrderStatus!, invoiceNumber, value: invoicedValue }
+        : o
+    );
+    write(WORKFLOW_ORDERS_KEY, updatedOrders);
+    broadcastChange(WORKFLOW_ORDERS_KEY);
+  }
+
+  pushBranchNotif({
+    type: "invoice_generated",
+    title: "Invoice Generated",
+    message: `Invoice ${invoiceNumber} has been generated for Batch ${conf.batchNumber} of order ${conf.orderId}. Please proceed with payment.`,
+  });
+  pushWarehouseNotif({
+    type: "invoice_generated",
+    title: "Invoice Generated",
+    message: `Invoice ${invoiceNumber} generated for Batch ${conf.batchNumber} of order ${conf.orderId} (${conf.branch}) — ${formatCurrency(invoicedValue)}.`,
+  });
+  pushAdminNotif({
+    type: "invoice_generated",
+    title: "Invoice Generated",
+    message: `Invoice ${invoiceNumber} generated for Batch ${conf.batchNumber} of order ${conf.orderId} — ${formatCurrency(invoicedValue)}.`,
+  });
+
+  return invoiceNumber;
+}
+
+/**
+ * Branch submits payment for an order.
+ * Advances order from "Payment Pending" (or "Invoice Generated") → "Payment Verification Pending".
+ * Order remains Delivered. Warehouse/Collections must then call markPaymentReceived() to complete.
+ */
+export function submitBranchPayment(orderId: string): void {
+  const orders = getWorkflowOrders();
+  const order = orders.find(o => o.id === orderId);
+  if (!order || (order.status !== "Payment Pending" && order.status !== "Invoice Generated")) return;
+
+  const updated = orders.map(o =>
+    o.id === orderId
+      ? { ...o, status: "Payment Verification Pending" as WorkflowLifecycleStatus }
+      : o
+  );
+  write(WORKFLOW_ORDERS_KEY, updated);
+  broadcastChange(WORKFLOW_ORDERS_KEY);
+
+  pushWarehouseNotif({
+    type: "payment_received",
+    title: "Payment Submitted — Verification Required",
+    message: `Branch ${order.branch} has submitted payment for order ${orderId}. Please verify and mark as received.`,
+  });
+  pushAdminNotif({
+    type: "payment_received",
+    title: "Payment Verification Pending",
+    message: `Order ${orderId} (${order.branch}) payment submitted — awaiting warehouse verification.`,
+  });
+}
+
+/**
+ * Warehouse/Collections confirms payment received.
+ * Advances order from "Payment Verification Pending" → "Payment Completed", then immediately "Order Closed".
+ * Payment status badge shows "Payment Completed"; order status badge shows "Order Closed".
+ */
+export function markPaymentReceived(orderId: string): void {
+  const orders = getWorkflowOrders();
+  const order = orders.find(o => o.id === orderId);
+  if (!order || order.status !== "Payment Verification Pending") return;
+
+  // Two-step: Payment Completed → Order Closed (atomic in demo)
+  const updated = orders.map(o =>
+    o.id === orderId
+      ? { ...o, status: "Order Closed" as WorkflowLifecycleStatus, paymentCompletedAt: new Date().toISOString() }
+      : o
+  );
+  write(WORKFLOW_ORDERS_KEY, updated);
+  broadcastChange(WORKFLOW_ORDERS_KEY);
+
+  if (RELEASE_STATUSES.includes("Order Closed")) {
+    releaseDispatchAssignment(orderId);
+  }
+
+  pushBranchNotif({
+    type: "payment_received",
+    title: "Payment Confirmed",
+    message: `Your payment for order ${orderId} has been verified. Order is now closed.`,
+  });
+  pushWarehouseNotif({
+    type: "payment_received",
+    title: "Payment Received",
+    message: `Payment confirmed for order ${orderId} (${order.branch}). Order closed.`,
+  });
+  pushAdminNotif({
+    type: "payment_received",
+    title: "Payment Completed",
+    message: `Order ${orderId} (${order.branch}) payment verified and closed.`,
+  });
+}
+
 // ── Delivery Exceptions ────────────────────────────────────────────────────────
 // Stores per-order delivery exception records (exception items per product).
 
@@ -1228,8 +1979,11 @@ export function getDeliveryException(orderId: string): DeliveryExceptionRecord |
 
 /**
  * Confirm delivery for an order — saves exception record, records delivered
- * date/time, auto-generates invoice using actual received quantity, and
- * advances status to "Invoice Generated".
+ * date/time, calculates invoice amount from received quantities, and advances
+ * order status to "Awaiting Invoice" so warehouse can review and generate invoice.
+ *
+ * NOTE: Does NOT auto-generate an invoice. The warehouse must click
+ * "Generate Invoice" in the Invoice Generation page to proceed.
  * Delivery difference reports are preserved separately for warehouse resolution.
  */
 export function confirmDelivery(record: DeliveryExceptionRecord) {
@@ -1239,42 +1993,81 @@ export function confirmDelivery(record: DeliveryExceptionRecord) {
   const deliveredDate = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   const deliveredTime = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
-  // Auto-generate invoice number
-  const invoiceNumber = nextDemoInvoiceNumber();
+  // 1. Also save as an OrderDeliveryConfirmation so Invoice Generation page
+  //    can display delivery lines and billable amount.
+  const lines: ProductDeliveryLine[] = record.items.map(item => {
+    const deliveredQty = item.receivedQty;
+    const loadedQty = item.loadedQty;
+    const pendingQty = Math.max(0, loadedQty - deliveredQty);
+    const status: ProductDeliveryStatus =
+      deliveredQty >= loadedQty ? "Delivered"
+      : deliveredQty === 0 ? "Not Delivered"
+      : "Partial Delivery";
+    return {
+      product: item.product,
+      unit: item.unit,
+      orderedQty: item.orderedQty,
+      loadedQty,
+      deliveredQty,
+      pendingQty,
+      status,
+      reason: item.exceptionReason || "",
+    };
+  });
+  const invoicedValue = Math.round(
+    lines.reduce((s, l) => s + l.deliveredQty * getProductSellingPrice(l.product), 0)
+  );
+  const allDelivered = lines.every(l => l.status === "Delivered");
+  const noneDelivered = lines.every(l => l.status === "Not Delivered");
+  const overallStatus: ProductDeliveryStatus | "Delivered Successfully" =
+    allDelivered ? "Delivered Successfully"
+    : noneDelivered ? "Not Delivered"
+    : "Partial Delivery";
 
-  // Status: Delivered → Invoice Generated → Payment Pending (both automatic)
-  // value updated to receivedValue (actual delivered qty × rate)
   const orders = getWorkflowOrders();
+  const order = orders.find(o => o.id === record.orderId);
+  const branch = order?.branch ?? record.branch;
+
+  const confirmation: OrderDeliveryConfirmation = {
+    orderId: record.orderId,
+    branch,
+    confirmedAt: `${deliveredDate}, ${deliveredTime}`,
+    lines,
+    invoicedValue,
+    overallStatus,
+  };
+  const existingConfs = getOrderDeliveryConfirmations().filter(c => c.orderId !== record.orderId);
+  write(ORDER_DELIVERY_CONFIRMATIONS_KEY, [confirmation, ...existingConfs]);
+  broadcastChange(ORDER_DELIVERY_CONFIRMATIONS_KEY);
+
+  // 2. Advance order to "Awaiting Invoice" (NOT Payment Pending — warehouse must generate invoice first).
   const updated = orders.map(o =>
     o.id === record.orderId
       ? {
           ...o,
-          status: "Payment Pending" as WorkflowLifecycleStatus,
-          value: record.receivedValue,
+          status: "Awaiting Invoice" as WorkflowLifecycleStatus,
+          value: invoicedValue,
           deliveredDate,
           deliveredTime,
-          invoiceNumber,
         }
       : o
   );
   write(WORKFLOW_ORDERS_KEY, updated);
   broadcastChange(WORKFLOW_ORDERS_KEY);
 
+  // 3. Release driver & vehicle
+  releaseDispatchAssignment(record.orderId);
+
   const isPartial = record.deliveryStatus === "Partial Delivery";
   pushBranchNotif({
-    type: "invoice_generated",
-    title: isPartial ? "Partial Delivery — Invoice Generated" : "Delivered — Invoice Generated",
-    message: `Order ${record.orderId} delivered to ${record.branch}. Invoice ${invoiceNumber} auto-generated for ₹${record.receivedValue.toLocaleString("en-IN")}.`,
+    type: "delivery",
+    title: isPartial ? "Partial Delivery Confirmed" : "Delivery Confirmed",
+    message: `Order ${record.orderId} delivered to ${branch}. Invoice will be generated shortly.`,
   });
   pushWarehouseNotif({
-    type: "invoice_generated",
-    title: "Invoice Auto-Generated on Delivery",
-    message: `Invoice ${invoiceNumber} generated for order ${record.orderId} (${record.branch}) — ₹${record.receivedValue.toLocaleString("en-IN")}.`,
-  });
-  pushAdminNotif({
-    type: "invoice_generated",
-    title: "Invoice Auto-Generated on Delivery",
-    message: `Invoice ${invoiceNumber} generated for order ${record.orderId} — ₹${record.receivedValue.toLocaleString("en-IN")}.`,
+    type: "delivery",
+    title: "Delivery Confirmed — Awaiting Invoice",
+    message: `Delivery confirmed for order ${record.orderId} (${branch}). Please review and generate invoice.`,
   });
 }
 
@@ -1527,4 +2320,580 @@ export function getBranchTrayLedger(): BranchTrayLedger[] {
     currentAtBranch: Math.max(0, b.traysSent - b.traysReturned),
     pendingReturn: Math.max(0, b.traysSent - b.traysReturned),
   }));
+}
+
+// ── Centralized Business Logic Helpers ───────────────────────────────────────
+// ALL calculations live here. Pages must only call these — never compute totals
+// or business rules inline.
+// =============================================================================
+
+// ── Batch Product Accessors ───────────────────────────────────────────────────
+
+/**
+ * Returns all DispatchBatchProduct lines for a given batch.
+ * These are the loaded/dispatched quantities — the source of truth for what
+ * left the warehouse.
+ */
+export function getBatchProducts(batchId: string): DispatchBatchProduct[] {
+  const batch = getDispatchBatches().find(b => b.batchId === batchId);
+  return batch?.products ?? [];
+}
+
+/**
+ * Returns the confirmed delivery lines for a batch (filled after confirmBatchDelivery).
+ * These record actual delivered quantities and reasons for any pending qty.
+ */
+export function getBatchDeliveryLines(batchId: string): ProductDeliveryLine[] {
+  const batch = getDispatchBatches().find(b => b.batchId === batchId);
+  return batch?.deliveryLines ?? [];
+}
+
+// ── Order-Level Delivery Helpers ──────────────────────────────────────────────
+
+/**
+ * Returns the aggregated delivery lines for an order (across all confirmed batches).
+ * This is the canonical source for what was actually delivered.
+ */
+export function getDeliveredProducts(orderId: string): ProductDeliveryLine[] {
+  const conf = getOrderDeliveryConfirmation(orderId);
+  return conf?.lines ?? [];
+}
+
+/**
+ * Returns items that still have pendingQty > 0 after delivery confirmation.
+ * These are NOT billed on the invoice.
+ */
+export function getRemainingProducts(orderId: string): ProductDeliveryLine[] {
+  return getDeliveredProducts(orderId).filter(l => l.pendingQty > 0);
+}
+
+// ── Invoice Calculation Helpers ───────────────────────────────────────────────
+
+/**
+ * Returns per-product invoice lines for an order:
+ *   { product, unit, deliveredQty, unitPrice, lineTotal }
+ *
+ * Always derived from confirmed delivery lines × current selling prices.
+ * Falls back to approved order items if no delivery confirmation exists
+ * (e.g. demo/mock orders).
+ */
+export function getInvoiceLines(orderId: string): Array<{
+  product: string;
+  unit: string;
+  deliveredQty: number;
+  unitPrice: number;
+  lineTotal: number;
+}> {
+  // Prefer order-level confirmation (set when ALL batches are delivered)
+  const conf = getOrderDeliveryConfirmation(orderId);
+  if (conf && conf.lines.length > 0) {
+    return conf.lines.map(l => {
+      const unitPrice = getProductSellingPrice(l.product);
+      return {
+        product: l.product,
+        unit: l.unit,
+        deliveredQty: l.deliveredQty,
+        unitPrice,
+        lineTotal: Math.round(l.deliveredQty * unitPrice),
+      };
+    });
+  }
+
+  // If some batches are delivered but not all, aggregate delivered batch lines
+  const deliveredBatchConfs = getBatchDeliveryConfirmationsForOrder(orderId);
+  if (deliveredBatchConfs.length > 0) {
+    const lineMap: Record<string, { product: string; unit: string; deliveredQty: number; unitPrice: number; lineTotal: number }> = {};
+    for (const bc of deliveredBatchConfs) {
+      for (const l of bc.lines) {
+        const unitPrice = getProductSellingPrice(l.product);
+        const lineTotal = Math.round(l.deliveredQty * unitPrice);
+        if (lineMap[l.product]) {
+          lineMap[l.product].deliveredQty += l.deliveredQty;
+          lineMap[l.product].lineTotal += lineTotal;
+        } else {
+          lineMap[l.product] = { product: l.product, unit: l.unit, deliveredQty: l.deliveredQty, unitPrice, lineTotal };
+        }
+      }
+    }
+    const lines = Object.values(lineMap);
+    if (lines.length > 0) return lines;
+  }
+
+  // Fallback: use order's approved quantities
+  const orders = getWorkflowOrders();
+  const order = orders.find(o => o.id === orderId);
+  if (order) {
+    return order.items.map(i => {
+      const deliveredQty = i.approvedQty > 0 ? i.approvedQty : i.orderedQty;
+      const unitPrice = getProductSellingPrice(i.product);
+      return {
+        product: i.product,
+        unit: i.unit,
+        deliveredQty,
+        unitPrice,
+        lineTotal: Math.round(deliveredQty * unitPrice),
+      };
+    });
+  }
+
+  return [];
+}
+
+/**
+ * Returns per-product invoice lines for a single delivered batch.
+ */
+export function getBatchInvoiceLines(batchId: string): Array<{
+  product: string;
+  unit: string;
+  deliveredQty: number;
+  unitPrice: number;
+  lineTotal: number;
+}> {
+  const conf = getBatchDeliveryConfirmation(batchId);
+  if (!conf || conf.lines.length === 0) return [];
+  return conf.lines.map(l => {
+    const unitPrice = getProductSellingPrice(l.product);
+    return {
+      product: l.product,
+      unit: l.unit,
+      deliveredQty: l.deliveredQty,
+      unitPrice,
+      lineTotal: Math.round(l.deliveredQty * unitPrice),
+    };
+  });
+}
+
+/**
+ * Returns the invoice subtotal (before tax) for a single delivered batch.
+ */
+export function getBatchInvoiceSubtotal(batchId: string): number {
+  const lines = getBatchInvoiceLines(batchId);
+  return Math.round(lines.reduce((s, l) => s + l.lineTotal, 0));
+}
+
+/**
+ * Returns the invoice amount including 5% GST for a single delivered batch.
+ */
+export function getBatchInvoiceAmount(batchId: string): number {
+  return Math.round(getBatchInvoiceSubtotal(batchId) * 1.05);
+}
+
+/**
+ * Returns the invoice subtotal (before tax) for an order.
+ * Always computed from confirmed delivery lines × current selling prices.
+ * Falls back to order.value if no delivery confirmation exists.
+ */
+export function getInvoiceSubtotal(orderId: string): number {
+  const lines = getInvoiceLines(orderId);
+  if (lines.length > 0) {
+    return Math.round(lines.reduce((s, l) => s + l.lineTotal, 0));
+  }
+  const order = getWorkflowOrders().find(o => o.id === orderId);
+  return order?.value ?? 0;
+}
+
+/**
+ * Returns the invoice amount including 5% GST for an order.
+ * This is the single canonical "billable amount" used everywhere.
+ */
+export function getInvoiceAmount(orderId: string): number {
+  const subtotal = getInvoiceSubtotal(orderId);
+  return Math.round(subtotal * 1.05);
+}
+
+// ── Payment / Collections Helpers ─────────────────────────────────────────────
+
+/**
+ * Returns the outstanding (unpaid) amount for an order.
+ * 0 if the order is Payment Completed or Order Closed.
+ */
+export function getOutstandingAmount(orderId: string): number {
+  const order = getWorkflowOrders().find(o => o.id === orderId);
+  if (!order) return 0;
+  const paid =
+    order.status === "Payment Completed" ||
+    order.status === "Order Closed";
+  return paid ? 0 : getInvoiceAmount(orderId);
+}
+
+/**
+ * Returns a summary of collections for a list of orders:
+ *   { outstanding, collected, pendingCount, verificationCount, closedCount }
+ *
+ * Intended for warehouse Collections page KPI cards.
+ */
+export function getCollections(orders: WorkflowOrderLive[]): {
+  outstanding: number;
+  collected: number;
+  pendingCount: number;
+  verificationCount: number;
+  closedCount: number;
+} {
+  let outstanding = 0;
+  let collected = 0;
+  let pendingCount = 0;
+  let verificationCount = 0;
+  let closedCount = 0;
+
+  for (const o of orders) {
+    const amt = getInvoiceAmount(o.id);
+    if (o.status === "Payment Completed" || o.status === "Order Closed") {
+      collected += amt;
+    } else {
+      outstanding += amt;
+    }
+    if (o.status === "Payment Pending") pendingCount++;
+    if (o.status === "Payment Verification Pending") verificationCount++;
+    if (o.status === "Order Closed") closedCount++;
+  }
+
+  return { outstanding, collected, pendingCount, verificationCount, closedCount };
+}
+
+/**
+ * Returns totals for the branch Payment Status page:
+ *   { totalValue, totalOutstanding, totalPaid }
+ */
+export function getBranchPayment(orders: WorkflowOrderLive[]): {
+  totalValue: number;
+  totalOutstanding: number;
+  totalPaid: number;
+} {
+  let totalValue = 0;
+  let totalOutstanding = 0;
+  let totalPaid = 0;
+
+  for (const o of orders) {
+    const amt = getInvoiceAmount(o.id);
+    totalValue += amt;
+    if (o.status === "Order Closed" || o.status === "Payment Completed") {
+      totalPaid += amt;
+    } else {
+      totalOutstanding += amt;
+    }
+  }
+
+  return { totalValue, totalOutstanding, totalPaid };
+}
+
+// ── Payment Status Derivation ─────────────────────────────────────────────────
+
+/**
+ * Maps a lifecycle status to a user-facing payment status string.
+ * Used by Collections and Payment Status pages.
+ */
+export function derivePaymentStatusLabel(status: WorkflowLifecycleStatus): string {
+  if (status === "Order Closed" || status === "Payment Completed") return "Payment Completed";
+  if (status === "Payment Verification Pending") return "Payment Verification Pending";
+  return "Payment Pending";
+}
+
+/**
+ * Maps a lifecycle status to a user-facing order status string.
+ * Used by Collections page.
+ */
+export function deriveOrderStatusLabel(status: WorkflowLifecycleStatus): string {
+  if (status === "Order Closed") return "Order Closed";
+  return "Delivered";
+}
+
+// ── Product Delivery Status Derivation ───────────────────────────────────────
+
+/**
+ * Derives whether a product line was fully/partially/not delivered.
+ * Used internally and by delivery-tracking page.
+ */
+export function deriveProductDeliveryStatus(
+  loadedQty: number,
+  deliveredQty: number
+): ProductDeliveryStatus {
+  if (deliveredQty >= loadedQty) return "Delivered";
+  if (deliveredQty === 0) return "Not Delivered";
+  return "Partial Delivery";
+}
+
+// ── Workflow Query Helpers (Single Source of Truth) ───────────────────────────
+// These are the canonical helpers all pages must use.
+// Never inspect raw order/batch/confirmation data inside page components.
+
+/**
+ * Returns the current status of a single dispatch batch.
+ */
+export function getBatchStatus(batchId: string): DispatchBatch["status"] | null {
+  const batch = getDispatchBatches().find(b => b.batchId === batchId);
+  return batch?.status ?? null;
+}
+
+/**
+ * Returns the current lifecycle status of an order.
+ * Always derived from the store — never stored independently in pages.
+ */
+export function getOrderStatus(orderId: string): WorkflowLifecycleStatus | null {
+  const order = getWorkflowOrders().find(o => o.id === orderId);
+  return (order?.status as WorkflowLifecycleStatus) ?? null;
+}
+
+
+
+/**
+ * Returns all dispatch batches that have been delivered (status === "Delivered")
+ * but whose order has NOT yet been fully confirmed at the order level.
+ * These batches are eligible for delivery confirmation review.
+ */
+export function getBatchesReadyForDelivery(): DispatchBatch[] {
+  return getDispatchBatches().filter(b => b.status === "In Transit");
+}
+
+/**
+ * Returns all BatchDeliveryConfirmations that have not yet been invoiced.
+ * @deprecated Use getOrdersReadyForInvoice() instead — invoice generation is order-wise.
+ */
+export function getBatchesReadyForInvoice(): BatchDeliveryConfirmation[] {
+  const orders = getWorkflowOrders();
+  const allConfs = getBatchDeliveryConfirmations();
+  const invoiceableStatuses: WorkflowLifecycleStatus[] = ["Awaiting Invoice", "Partially Delivered"];
+  return allConfs.filter(conf => {
+    if (conf.invoiced) return false;
+    const order = orders.find(o => o.id === conf.orderId);
+    if (!order) return false;
+    return invoiceableStatuses.includes(order.status as WorkflowLifecycleStatus);
+  });
+}
+
+/** Represents an order whose ALL dispatch batches have been delivered and no invoice has been generated yet. */
+export type OrderReadyForInvoice = {
+  orderId: string;
+  branch: string;
+  /** Date/time of the last batch delivery confirmation */
+  lastDeliveredAt: string;
+  /** Combined invoice lines from all batches */
+  lines: Array<{ product: string; unit: string; deliveredQty: number; unitPrice: number; lineTotal: number }>;
+  /** Subtotal before tax */
+  subtotal: number;
+  /** Total including 5% GST */
+  total: number;
+  /** How many batches were part of this order */
+  batchCount: number;
+};
+
+/**
+ * Returns orders where ALL dispatch batches have been delivered and
+ * no invoice has been generated yet (order status = "Awaiting Invoice").
+ * Invoice Generation page renders exactly this list — no inline derivation needed.
+ */
+export function getOrdersReadyForInvoice(): OrderReadyForInvoice[] {
+  const orders = getWorkflowOrders();
+  const allBatches = getDispatchBatches();
+  const allBatchConfs = getBatchDeliveryConfirmations();
+
+  const result: OrderReadyForInvoice[] = [];
+
+  for (const order of orders) {
+    if ((order.status as WorkflowLifecycleStatus) !== "Awaiting Invoice") continue;
+    // Must not already have an invoice number on the order
+    if (order.invoiceNumber) continue;
+
+    const orderBatches = allBatches.filter(b => b.orderId === order.id);
+    if (orderBatches.length === 0) continue;
+
+    // All batches must be Delivered
+    if (!orderBatches.every(b => b.status === "Delivered")) continue;
+
+    // None of the batch confirmations for this order should be invoiced
+    const batchConfsForOrder = allBatchConfs.filter(c => c.orderId === order.id);
+    if (batchConfsForOrder.some(c => c.invoiced)) continue;
+
+    // Aggregate invoice lines across all batches
+    const lineMap: Record<string, { product: string; unit: string; deliveredQty: number; unitPrice: number; lineTotal: number }> = {};
+    let lastDeliveredAt = "";
+
+    for (const bc of batchConfsForOrder) {
+      if (!lastDeliveredAt || bc.confirmedAt > lastDeliveredAt) lastDeliveredAt = bc.confirmedAt;
+      for (const l of bc.lines) {
+        const unitPrice = getProductSellingPrice(l.product);
+        const lineTotal = Math.round(l.deliveredQty * unitPrice);
+        if (lineMap[l.product]) {
+          lineMap[l.product].deliveredQty += l.deliveredQty;
+          lineMap[l.product].lineTotal += lineTotal;
+        } else {
+          lineMap[l.product] = { product: l.product, unit: l.unit, deliveredQty: l.deliveredQty, unitPrice, lineTotal };
+        }
+      }
+    }
+
+    const lines = Object.values(lineMap);
+    const subtotal = Math.round(lines.reduce((s, l) => s + l.lineTotal, 0));
+    const total = Math.round(subtotal * 1.05);
+
+    result.push({
+      orderId: order.id,
+      branch: order.branch,
+      lastDeliveredAt: lastDeliveredAt || order.date,
+      lines,
+      subtotal,
+      total,
+      batchCount: orderBatches.length,
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Generate a single invoice for a complete order once all batches are delivered.
+ * Marks all batch confirmations for the order as invoiced, advances order to "Payment Pending".
+ * Returns the generated invoice number, or null if not eligible.
+ */
+export function generateInvoiceForOrder(orderId: string): string | null {
+  const orders = getWorkflowOrders();
+  const order = orders.find(o => o.id === orderId);
+  if (!order || (order.status as WorkflowLifecycleStatus) !== "Awaiting Invoice") return null;
+  if (order.invoiceNumber) return null; // already invoiced
+
+  const allBatches = getDispatchBatches().filter(b => b.orderId === orderId);
+  if (allBatches.length === 0) return null;
+  if (!allBatches.every(b => b.status === "Delivered")) return null;
+
+  // Aggregate invoice value across all batch confirmations
+  const batchConfs = getBatchDeliveryConfirmations().filter(c => c.orderId === orderId);
+  const invoicedValue = Math.round(
+    batchConfs.reduce((sum, conf) =>
+      sum + conf.lines.reduce((s, l) => s + l.deliveredQty * getProductSellingPrice(l.product), 0),
+    0) * 1.05
+  );
+
+  const invoiceNumber = nextDemoInvoiceNumber();
+
+  // Mark all batch confirmations for this order as invoiced
+  const allBatchConfs = getBatchDeliveryConfirmations();
+  const updatedBatchConfs = allBatchConfs.map(c =>
+    c.orderId === orderId ? { ...c, invoiced: true, invoiceNumber } : c
+  );
+  write(BATCH_DELIVERY_CONFIRMATIONS_KEY, updatedBatchConfs);
+  broadcastChange(BATCH_DELIVERY_CONFIRMATIONS_KEY);
+
+  // Advance order to Payment Pending
+  const updatedOrders = orders.map(o =>
+    o.id === orderId
+      ? { ...o, status: "Payment Pending" as WorkflowLifecycleStatus, invoiceNumber, value: invoicedValue }
+      : o
+  );
+  write(WORKFLOW_ORDERS_KEY, updatedOrders);
+  broadcastChange(WORKFLOW_ORDERS_KEY);
+
+  pushBranchNotif({
+    type: "invoice_generated",
+    title: "Invoice Generated",
+    message: `Invoice ${invoiceNumber} has been generated for your order ${orderId}. Please proceed with payment.`,
+  });
+  pushWarehouseNotif({
+    type: "invoice_generated",
+    title: "Invoice Generated",
+    message: `Invoice ${invoiceNumber} generated for order ${orderId} (${order.branch}) — ${formatCurrency(invoicedValue)}.`,
+  });
+  pushAdminNotif({
+    type: "invoice_generated",
+    title: "Invoice Generated",
+    message: `Invoice ${invoiceNumber} generated for order ${orderId} — ${formatCurrency(invoicedValue)}.`,
+  });
+
+  return invoiceNumber;
+}
+
+// ── Invoice Object ─────────────────────────────────────────────────────────────
+
+export type InvoiceRecord = {
+  invoiceNumber: string;
+  orderId: string;
+  branch: string;
+  batchId: string;
+  batchNumber: number;
+  deliveredDate: string;
+  amount: number;
+  orderStatus: WorkflowLifecycleStatus;
+  /** Number of dispatch batches that made up this order (informational) */
+  batchCount?: number;
+};
+
+/**
+ * Returns all generated invoices as InvoiceRecord objects — one record per order.
+ * Invoice generation is order-wise: a single invoice covers all batches of an order.
+ * Collections, Payment Status, and My Orders pages read from this — never from raw confirmations.
+ */
+export function getInvoices(): InvoiceRecord[] {
+  const orders = getWorkflowOrders();
+  const allConfs = getBatchDeliveryConfirmations();
+  const seen = new Set<string>();
+  const result: InvoiceRecord[] = [];
+
+  const INVOICED_STATUSES: WorkflowLifecycleStatus[] = [
+    "Invoice Generated", "Payment Pending", "Payment Verification Pending",
+    "Payment Completed", "Order Closed",
+  ];
+
+  for (const order of orders) {
+    if (!order.invoiceNumber) continue;
+    if (!INVOICED_STATUSES.includes(order.status as WorkflowLifecycleStatus)) continue;
+    if (seen.has(order.invoiceNumber)) continue;
+    seen.add(order.invoiceNumber);
+
+    // Aggregate delivery lines from all batch confirmations for this order
+    const batchConfsForOrder = allConfs.filter(c => c.orderId === order.id);
+    const deliveredDate = order.deliveredDate ?? order.date;
+
+    result.push({
+      invoiceNumber: order.invoiceNumber,
+      orderId: order.id,
+      branch: order.branch,
+      batchId: "",       // order-level invoice — no single batchId
+      batchNumber: 0,    // 0 = full order
+      deliveredDate,
+      amount: getInvoiceAmount(order.id),
+      orderStatus: order.status as WorkflowLifecycleStatus,
+      batchCount: batchConfsForOrder.length,
+    });
+  }
+
+  return result.sort((a, b) => b.invoiceNumber.localeCompare(a.invoiceNumber));
+}
+
+/**
+ * Returns the InvoiceRecord for a specific batch, or null if not yet invoiced.
+ */
+export function getInvoice(batchId: string): InvoiceRecord | null {
+  return getInvoices().find(inv => inv.batchId === batchId) ?? null;
+}
+
+/**
+ * Returns a summary of the order's delivery confirmation for branch-facing views.
+ * Pages must use this instead of calling getOrderDeliveryConfirmation directly.
+ */
+export function getOrderDeliveryStatus(orderId: string): {
+  overallStatus: string;
+  deliveryRemark: string | null;
+  confirmedAt: string | null;
+  hasPendingItems: boolean;
+  pendingLines: Array<{ product: string; unit: string; pendingQty: number; reason: string }>;
+} {
+  const conf = getOrderDeliveryConfirmation(orderId);
+  if (!conf) {
+    return {
+      overallStatus: "Not Confirmed",
+      deliveryRemark: null,
+      confirmedAt: null,
+      hasPendingItems: false,
+      pendingLines: [],
+    };
+  }
+  const deliveryRemark = conf.lines.find(l => l.reason)?.reason ?? null;
+  const pendingLines = conf.lines
+    .filter(l => l.pendingQty > 0)
+    .map(l => ({ product: l.product, unit: l.unit, pendingQty: l.pendingQty, reason: l.reason ?? "" }));
+  return {
+    overallStatus: conf.overallStatus,
+    deliveryRemark,
+    confirmedAt: conf.confirmedAt,
+    hasPendingItems: pendingLines.length > 0,
+    pendingLines,
+  };
 }

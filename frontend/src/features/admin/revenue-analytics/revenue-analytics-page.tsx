@@ -15,6 +15,7 @@ import {
 import { ErpLayout } from "../../shared/erp-layout";
 import { ADMIN_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { ADMIN_SIDEBAR_LABELS } from "../../../shared/data/admin-mock-data";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 const revenueSummary = [
   { title: "Total Revenue", value: "₹98,76,430", note: "+12.8% vs last month", positive: true },
@@ -51,11 +52,12 @@ const revenueByCategory = [
 ];
 
 const revenueByPaymentMethod = [
-  { name: "UPI", value: 42, color: "#2563EB" },
-  { name: "Credit Card", value: 22, color: "#16A34A" },
-  { name: "Debit Card", value: 18, color: "#F97316" },
-  { name: "Net Banking", value: 10, color: "#8B5CF6" },
-  { name: "Bank Transfer", value: 8, color: "#64748B" },
+  { name: "Cash", value: 45, color: "#16A34A" },
+  { name: "UPI", value: 25, color: "#2563EB" },
+  { name: "Credit Card", value: 12, color: "#F97316" },
+  { name: "Debit Card", value: 8, color: "#8B5CF6" },
+  { name: "Net Banking", value: 5, color: "#06B6D4" },
+  { name: "Bank Transfer", value: 5, color: "#64748B" },
 ];
 
 export function RevenueAnalyticsPage() {
@@ -82,7 +84,7 @@ export function RevenueAnalyticsPage() {
                 <CartesianGrid stroke="#EEF2F7" />
                 <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₹${Math.round(v / 1000)}k`} />
-                <Tooltip formatter={(value) => `₹${new Intl.NumberFormat("en-IN").format(Number(value ?? 0))}`} />
+                <Tooltip formatter={(value) => formatCurrency(Number(value ?? 0))} />
                 <Bar dataKey="lastYear" fill="#93C5FD" radius={[4, 4, 0, 0]} />
                 <Line type="monotone" dataKey="thisYear" stroke="#1D4ED8" strokeWidth={3} dot={{ r: 3 }} />
               </ComposedChart>
@@ -108,7 +110,7 @@ export function RevenueAnalyticsPage() {
                 <CartesianGrid stroke="#EEF2F7" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
                 <YAxis type="category" dataKey="branch" tick={{ fontSize: 12 }} width={90} />
-                <Tooltip formatter={(value) => `₹${new Intl.NumberFormat("en-IN").format(Number(value ?? 0))}`} />
+                <Tooltip formatter={(value) => formatCurrency(Number(value ?? 0))} />
                 <Bar dataKey="revenue" fill="#0A3A92" radius={[0, 6, 6, 0]} />
               </BarChart>
             </ResponsiveContainer>

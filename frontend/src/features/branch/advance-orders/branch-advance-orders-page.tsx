@@ -9,6 +9,7 @@ import {
   saveWorkflowOrder,
   type WorkflowOrderLive,
 } from "../../../shared/lib/demo-store";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 // Complete product list matching Product Catalog — frontend constant, no backend needed
 const CATALOG_PRODUCTS: { product: string; price: number }[] = [
@@ -353,7 +354,7 @@ export function BranchAdvanceOrdersPage() {
             <div className="mb-4 rounded-lg bg-indigo-50 border border-indigo-100 px-4 py-3 flex justify-between text-sm">
               <span className="text-indigo-600">Estimated Value</span>
               <span className="font-bold text-indigo-800">
-                ₹{((priceMap[product] ?? 400) * qty).toLocaleString("en-IN")}
+                {formatCurrency((priceMap[product] ?? 400) * qty)}
               </span>
             </div>
 
@@ -444,7 +445,7 @@ export function BranchAdvanceOrdersPage() {
                           Order Placed
                         </span>
                         <p className="text-xs text-slate-400 mt-1">
-                          ₹{((priceMap[o.product] ?? 400) * o.qty).toLocaleString("en-IN")}
+                          {formatCurrency((priceMap[o.product] ?? 400) * o.qty)}
                         </p>
                       </div>
                     </div>

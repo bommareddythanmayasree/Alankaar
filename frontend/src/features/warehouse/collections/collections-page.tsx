@@ -5,7 +5,9 @@ import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
 import {
   getWorkflowOrders,
-  updateWorkflowOrderStatus,
+  getOrderDeliveryConfirmation,
+  getProductSellingPrice,
+  markPaymentReceived,
   type WorkflowOrderLive,
   type WorkflowLifecycleStatus,
 } from "../../../shared/lib/demo-store";
@@ -14,20 +16,22 @@ import {
 const COLLECTION_STATUSES: WorkflowLifecycleStatus[] = [
   "Invoice Generated",
   "Payment Pending",
+  "Payment Verification Pending",
   "Payment Completed",
   "Order Closed",
 ];
 
-type FilterTab = "All" | "Payment Pending" | "Payment Completed" | "Order Closed";
+type FilterTab = "All" | "Payment Pending" | "Payment Verification Pending" | "Payment Completed" | "Order Closed";
 
 function fmt(v: number) { return `₹${v.toLocaleString("en-IN")}`; }
 
 function paymentStatusBadge(status: WorkflowLifecycleStatus) {
-  if (status === "Order Closed")        return "bg-slate-100 text-slate-600";
-  if (status === "Payment Completed")   return "bg-emerald-100 text-emerald-700";
-  if (status === "Payment Pending")     return "bg-amber-100 text-amber-700";
-  return "bg-violet-100 text-violet-700"; // Invoice Generated
+  if (status === "Order Closed")                  return "bg-slate-100 text-slate-600";
+  if (status === "Payment Completed")             return "bg-emerald-100 text-emerald-700";
+  if (status === "Payment Verification Pending")  return "bg-orange-100 text-orange-700";
+  return "bg-amber-100 text-amber-700"; // Payment Pending / Invoice Generated
 }
+
 
 function orderStatusBadge(status: WorkflowLifecycleStatus) {
   if (status === "Order Closed")      return "bg-slate-100 text-slate-600";
@@ -37,9 +41,10 @@ function orderStatusBadge(status: WorkflowLifecycleStatus) {
 
 function derivePaymentStatus(status: WorkflowLifecycleStatus): string {
   if (status === "Order Closed" || status === "Payment Completed") return "Payment Completed";
-  if (status === "Payment Pending") return "Payment Pending";
-  return "Invoice Generated";
+  if (status === "Payment Verification Pending") return "Payment Verification Pending";
+  return "Payment Pending"; // Invoice Generated or Payment Pending
 }
+
 
 function deriveOrderStatus(status: WorkflowLifecycleStatus): string {
   if (status === "Order Closed") return "Order Closed";
@@ -55,9 +60,13 @@ function InvoiceModal({
   order: WorkflowOrderLive;
   onClose: () => void;
 }) {
+  // order.value is the pre-tax subtotal (delivered qty × unit price)
   const subtotal = order.value;
   const gst = Math.round(subtotal * 0.05);
   const total = subtotal + gst;
+
+  // Get delivered qty per product from delivery confirmation
+  const conf = getOrderDeliveryConfirmation(order.id);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -98,18 +107,28 @@ function InvoiceModal({
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-3 py-2 text-left">Product</th>
-                <th className="px-3 py-2 text-right">Qty</th>
-                <th className="px-3 py-2 text-right">Unit</th>
+                <th className="px-3 py-2 text-right">Delivered Qty</th>
+                <th className="px-3 py-2 text-right">Unit Price</th>
+                <th className="px-3 py-2 text-right">Line Total</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {order.items.map((item, i) => (
-                <tr key={i}>
-                  <td className="px-3 py-2 text-slate-700">{item.product}</td>
-                  <td className="px-3 py-2 text-right font-medium">{item.approvedQty || item.orderedQty}</td>
-                  <td className="px-3 py-2 text-right text-slate-500">{item.unit}</td>
-                </tr>
-              ))}
+              {order.items.map((item, i) => {
+                const confLine = conf?.lines.find(l => l.product === item.product);
+                const deliveredQty = confLine
+                  ? confLine.deliveredQty
+                  : (item.approvedQty > 0 ? item.approvedQty : item.orderedQty);
+                const unitPrice = getProductSellingPrice(item.product);
+                const lineTotal = Math.round(deliveredQty * unitPrice);
+                return (
+                  <tr key={i}>
+                    <td className="px-3 py-2 text-slate-700">{item.product}</td>
+                    <td className="px-3 py-2 text-right font-medium text-emerald-700">{deliveredQty} {item.unit}</td>
+                    <td className="px-3 py-2 text-right text-slate-500">₹{unitPrice.toLocaleString("en-IN")}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-slate-800">₹{lineTotal.toLocaleString("en-IN")}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 
@@ -170,38 +189,37 @@ export function CollectionsPage() {
     setTimeout(() => setToast(null), 3500);
   }
 
-  function handleMarkPaid(orderId: string) {
-    // Sets Payment Completed — demo-store auto-advances to Order Closed
-    updateWorkflowOrderStatus(orderId, "Payment Completed");
-    showToast(`Payment completed — Order ${orderId} closed automatically`);
+  function handleMarkPaymentReceived(orderId: string) {
+    markPaymentReceived(orderId);
+    showToast(`Payment received — Order ${orderId} closed automatically`);
     loadOrders();
   }
 
   // ── Metrics ──────────────────────────────────────────────────────────────
   const outstanding = orders
-    .filter(o => o.status === "Invoice Generated" || o.status === "Payment Pending")
-    .reduce((s, o) => s + o.value, 0);
+    .filter(o => o.status === "Invoice Generated" || o.status === "Payment Pending" || o.status === "Payment Verification Pending")
+    .reduce((s, o) => s + Math.round(o.value * 1.05), 0);
 
   const collected = orders
     .filter(o => o.status === "Payment Completed" || o.status === "Order Closed")
-    .reduce((s, o) => s + o.value, 0);
+    .reduce((s, o) => s + Math.round(o.value * 1.05), 0);
 
-  const pendingPaymentsCount = orders.filter(o =>
-    o.status === "Invoice Generated" || o.status === "Payment Pending"
-  ).length;
+  const pendingPaymentsCount = orders.filter(o => o.status === "Payment Pending").length;
 
   const closedOrdersCount = orders.filter(o => o.status === "Order Closed").length;
 
   // ── Filter logic ─────────────────────────────────────────────────────────
-  const TABS: FilterTab[] = ["All", "Payment Pending", "Payment Completed", "Order Closed"];
+  const TABS: FilterTab[] = ["All", "Payment Pending", "Payment Verification Pending", "Payment Completed", "Order Closed"];
 
   const rows = filter === "All"
     ? orders
     : filter === "Payment Pending"
       ? orders.filter(o => o.status === "Invoice Generated" || o.status === "Payment Pending")
-      : filter === "Payment Completed"
-        ? orders.filter(o => o.status === "Payment Completed")
-        : orders.filter(o => o.status === "Order Closed");
+      : filter === "Payment Verification Pending"
+        ? orders.filter(o => o.status === "Payment Verification Pending")
+        : filter === "Payment Completed"
+          ? orders.filter(o => o.status === "Payment Completed")
+          : orders.filter(o => o.status === "Order Closed");
 
   return (
     <ErpLayout sidebarItems={buildSidebar(WAREHOUSE_NAV, [...WAREHOUSE_SIDEBAR_LABELS], "Collections")}>
@@ -315,7 +333,7 @@ export function CollectionsPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map(order => {
-                  const isPending = order.status === "Payment Pending" || order.status === "Invoice Generated";
+                  const isPending = order.status === "Payment Verification Pending";
                   const isClosed  = order.status === "Order Closed";
                   const paymentDate = isClosed ? (order.deliveredDate ?? "27 Jun 2026") : null;
 
@@ -337,7 +355,7 @@ export function CollectionsPage() {
                         )}
                       </td>
                       <td className="px-5 py-3 text-right font-semibold text-slate-800">
-                        {fmt(order.value)}
+                        {fmt(Math.round(order.value * 1.05))}
                       </td>
                       <td className="px-5 py-3">
                         <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${paymentStatusBadge(order.status as WorkflowLifecycleStatus)}`}>
@@ -362,7 +380,7 @@ export function CollectionsPage() {
                           </button>
                           {isPending && (
                             <button
-                              onClick={() => handleMarkPaid(order.id)}
+                              onClick={() => handleMarkPaymentReceived(order.id)}
                               className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors"
                             >
                               Mark Paid

@@ -117,7 +117,14 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
   const [orders, setOrders] = useState<PlacedOrder[]>([]);
 
   const warehouseProducts = useWarehouseProducts();
-  const { markPaymentComplete, addBranchNotification, addOrderFromBranch, registerBranchStatusUpdater, products: warehouseStockProducts } = useWarehouseForBranch();
+  // useWarehouseForBranch returns null when WarehouseContext is unavailable (e.g. HMR identity mismatch).
+  // Guard here so BranchProvider does not hard-crash — it renders children with empty defaults instead.
+  const warehouseCtx = useWarehouseForBranch();
+  const markPaymentComplete = warehouseCtx?.markPaymentComplete ?? (() => {});
+  const addBranchNotification = warehouseCtx?.addBranchNotification ?? (() => {});
+  const addOrderFromBranch = warehouseCtx?.addOrderFromBranch ?? (() => {});
+  const registerBranchStatusUpdater = warehouseCtx?.registerBranchStatusUpdater ?? (() => {});
+  const warehouseStockProducts = warehouseCtx?.products ?? [];
 
   // Only show Approved products in branch catalog (undefined means original seeded = approved)
   const catalogProducts: CatalogProduct[] = (() => {

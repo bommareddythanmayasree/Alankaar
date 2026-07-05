@@ -13,6 +13,7 @@ import { BRANCH_SIDEBAR_LABELS } from "../../../shared/data/branch-mock-data";
 import { useCart } from "../../../app/branch/branch-context";
 import { useActiveProducts } from "../../../shared/hooks/use-active-products";
 import { getUnitLabel, PRODUCT_CATEGORY_MAP } from "../../../shared/utils/product-units";
+import { getProductSellingPrice } from "../../../shared/lib/demo-store";
 
 // Product images import
 import kalakandImg from "../../../assets/products/kalakand.jpg";
@@ -260,7 +261,7 @@ export function ProductCatalogPage() {
     } else if (existing) {
       setQty(existing.id, qty);
     } else {
-      addToCart({ id: product, name: product, price: 680 }, qty);
+      addToCart({ id: product, name: product, price: getProductSellingPrice(product) }, qty);
     }
   }
 

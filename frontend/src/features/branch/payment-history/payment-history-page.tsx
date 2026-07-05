@@ -9,6 +9,7 @@ import {
   type WorkflowOrderLive,
   type WorkflowLifecycleStatus,
 } from "../../../shared/lib/demo-store";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 // Statuses to show in Payment History
 const HISTORY_STATUSES: WorkflowLifecycleStatus[] = ["Payment Completed", "Order Closed"];
@@ -18,9 +19,206 @@ const STATUS_COLORS: Record<string, string> = {
   "Order Closed":      "bg-slate-100 text-slate-600",
 };
 
+const METHOD_COLORS: Record<string, string> = {
+  "Cash":          "bg-green-50 text-green-700",
+  "UPI":           "bg-violet-50 text-violet-700",
+  "Card":          "bg-blue-50 text-blue-700",
+  "Bank Transfer": "bg-amber-50 text-amber-700",
+  "Net Banking":   "bg-cyan-50 text-cyan-700",
+};
+
+// ── Static mock payment records ────────────────────────────────────────────
+interface MockPaymentRecord {
+  id: string;
+  date: string;
+  orderId: string;
+  invoiceNumber: string;
+  amount: number;
+  paymentMethod: string;
+  status: "Payment Completed" | "Order Closed";
+  transactionRef: string;
+  collectedBy: string;
+}
+
+const MOCK_PAYMENTS: MockPaymentRecord[] = [
+  {
+    id: "mock-1",
+    date: "2026-07-04",
+    orderId: "ORD-2026-0041",
+    invoiceNumber: "INV-2026-1045",
+    amount: 15670,
+    paymentMethod: "UPI",
+    status: "Order Closed",
+    transactionRef: "UPI/261850234512",
+    collectedBy: "Ravi Kumar",
+  },
+  {
+    id: "mock-2",
+    date: "2026-07-04",
+    orderId: "ORD-2026-0038",
+    invoiceNumber: "INV-2026-1042",
+    amount: 8900,
+    paymentMethod: "Cash",
+    status: "Payment Completed",
+    transactionRef: "CASH/260704/038",
+    collectedBy: "Meena Rao",
+  },
+  {
+    id: "mock-3",
+    date: "2026-07-03",
+    orderId: "ORD-2026-0035",
+    invoiceNumber: "INV-2026-1039",
+    amount: 22100,
+    paymentMethod: "Bank Transfer",
+    status: "Order Closed",
+    transactionRef: "NEFT/HDFC/261703/4892",
+    collectedBy: "Suresh Nair",
+  },
+  {
+    id: "mock-4",
+    date: "2026-07-03",
+    orderId: "ORD-2026-0033",
+    invoiceNumber: "INV-2026-1037",
+    amount: 12430,
+    paymentMethod: "Net Banking",
+    status: "Order Closed",
+    transactionRef: "NBNK/SBI/261703/7731",
+    collectedBy: "Priya Menon",
+  },
+  {
+    id: "mock-5",
+    date: "2026-07-03",
+    orderId: "ORD-2026-0031",
+    invoiceNumber: "INV-2026-1034",
+    amount: 4850,
+    paymentMethod: "UPI",
+    status: "Payment Completed",
+    transactionRef: "UPI/261603219847",
+    collectedBy: "Ravi Kumar",
+  },
+  {
+    id: "mock-6",
+    date: "2026-07-02",
+    orderId: "ORD-2026-0028",
+    invoiceNumber: "INV-2026-1031",
+    amount: 18250,
+    paymentMethod: "Card",
+    status: "Order Closed",
+    transactionRef: "POS/ICICI/261702/CC9934",
+    collectedBy: "Deepak Sharma",
+  },
+  {
+    id: "mock-7",
+    date: "2026-07-02",
+    orderId: "ORD-2026-0025",
+    invoiceNumber: "INV-2026-1028",
+    amount: 9600,
+    paymentMethod: "Cash",
+    status: "Payment Completed",
+    transactionRef: "CASH/260702/025",
+    collectedBy: "Meena Rao",
+  },
+  {
+    id: "mock-8",
+    date: "2026-07-01",
+    orderId: "ORD-2026-0021",
+    invoiceNumber: "INV-2026-1024",
+    amount: 31400,
+    paymentMethod: "Bank Transfer",
+    status: "Order Closed",
+    transactionRef: "RTGS/AXIS/261701/9203",
+    collectedBy: "Suresh Nair",
+  },
+  {
+    id: "mock-9",
+    date: "2026-07-01",
+    orderId: "ORD-2026-0019",
+    invoiceNumber: "INV-2026-1022",
+    amount: 7350,
+    paymentMethod: "UPI",
+    status: "Payment Completed",
+    transactionRef: "UPI/261501098234",
+    collectedBy: "Priya Menon",
+  },
+  {
+    id: "mock-10",
+    date: "2026-06-30",
+    orderId: "ORD-2026-0016",
+    invoiceNumber: "INV-2026-1019",
+    amount: 14920,
+    paymentMethod: "Net Banking",
+    status: "Order Closed",
+    transactionRef: "NBNK/KOTAK/260630/4412",
+    collectedBy: "Deepak Sharma",
+  },
+  {
+    id: "mock-11",
+    date: "2026-06-30",
+    orderId: "ORD-2026-0014",
+    invoiceNumber: "INV-2026-1017",
+    amount: 6200,
+    paymentMethod: "Card",
+    status: "Payment Completed",
+    transactionRef: "POS/HDFC/260630/DC7781",
+    collectedBy: "Ravi Kumar",
+  },
+  {
+    id: "mock-12",
+    date: "2026-06-29",
+    orderId: "ORD-2026-0011",
+    invoiceNumber: "INV-2026-1014",
+    amount: 26750,
+    paymentMethod: "Bank Transfer",
+    status: "Order Closed",
+    transactionRef: "NEFT/ICICI/260629/8854",
+    collectedBy: "Suresh Nair",
+  },
+];
+
+// Unified row type for rendering
+interface PaymentRow {
+  _key: string;
+  date: string;
+  orderId: string;
+  invoiceNumber: string;
+  amount: number;
+  paymentMethod: string;
+  status: string;
+  transactionRef: string;
+  collectedBy: string;
+}
+
+function liveOrderToRow(o: WorkflowOrderLive): PaymentRow {
+  return {
+    _key: o.id,
+    date: o.date,
+    orderId: o.id,
+    invoiceNumber: o.invoiceNumber ?? "—",
+    amount: o.value,
+    paymentMethod: (o as unknown as { paymentMethod?: string }).paymentMethod ?? "—",
+    status: o.status,
+    transactionRef: (o as unknown as { transactionRef?: string }).transactionRef ?? "—",
+    collectedBy: (o as unknown as { collectedBy?: string }).collectedBy ?? "—",
+  };
+}
+
+function mockToRow(m: MockPaymentRecord): PaymentRow {
+  return {
+    _key: m.id,
+    date: m.date,
+    orderId: m.orderId,
+    invoiceNumber: m.invoiceNumber,
+    amount: m.amount,
+    paymentMethod: m.paymentMethod,
+    status: m.status,
+    transactionRef: m.transactionRef,
+    collectedBy: m.collectedBy,
+  };
+}
+
 export function PaymentHistoryPage() {
   const currentBranch = getCurrentDemoBranchName();
-  const [orders, setOrders] = useState<WorkflowOrderLive[]>([]);
+  const [liveOrders, setLiveOrders] = useState<WorkflowOrderLive[]>([]);
   const [search, setSearch] = useState("");
 
   const loadOrders = useCallback(() => {
@@ -28,7 +226,7 @@ export function PaymentHistoryPage() {
       o.branch === currentBranch &&
       HISTORY_STATUSES.includes(o.status as WorkflowLifecycleStatus)
     );
-    setOrders(all);
+    setLiveOrders(all);
   }, [currentBranch]);
 
   useEffect(() => {
@@ -41,21 +239,29 @@ export function PaymentHistoryPage() {
     };
   }, [loadOrders]);
 
-  const filtered = orders.filter(o => {
+  // Merge mock + live rows, sorted newest first
+  const allRows: PaymentRow[] = [
+    ...liveOrders.map(liveOrderToRow),
+    ...MOCK_PAYMENTS.map(mockToRow),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+
+  const filtered = allRows.filter(r => {
     const q = search.toLowerCase();
     return (
-      o.id.toLowerCase().includes(q) ||
-      o.status.toLowerCase().includes(q) ||
-      (o.invoiceNumber ?? "").toLowerCase().includes(q)
+      r.orderId.toLowerCase().includes(q) ||
+      r.invoiceNumber.toLowerCase().includes(q) ||
+      r.status.toLowerCase().includes(q) ||
+      r.paymentMethod.toLowerCase().includes(q) ||
+      r.transactionRef.toLowerCase().includes(q)
     );
   });
 
-  const totalCollected = orders.filter(o => o.status === "Payment Completed" || o.status === "Order Closed")
-    .reduce((s, o) => s + o.value, 0);
-  const completedCount = orders.filter(o => o.status === "Payment Completed").length;
-  const closedCount    = orders.filter(o => o.status === "Order Closed").length;
+  // Summary calculations
+  const totalCollected = allRows.reduce((s, r) => s + r.amount, 0);
+  const completedCount = allRows.filter(r => r.status === "Payment Completed").length;
+  const closedCount    = allRows.filter(r => r.status === "Order Closed").length;
 
-  function fmt(v: number) { return `\u20B9${v.toLocaleString("en-IN")}`; }
+  function fmt(v: number) { return formatCurrency(v); }
 
   return (
     <ErpLayout sidebarItems={buildSidebar(BRANCH_NAV, [...BRANCH_SIDEBAR_LABELS], "Payment History")}>
@@ -82,7 +288,7 @@ export function PaymentHistoryPage() {
           </div>
           <div>
             <div className="text-xl font-semibold text-slate-800">{completedCount}</div>
-            <div className="text-xs text-slate-500">Payment Completed</div>
+            <div className="text-xs text-slate-500">Payments Completed</div>
           </div>
         </div>
 
@@ -103,7 +309,7 @@ export function PaymentHistoryPage() {
         <input
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Search by order ID, invoice, or status..."
+          placeholder="Search by order ID, invoice, method, or status..."
           className="flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
         />
       </div>
@@ -118,29 +324,41 @@ export function PaymentHistoryPage() {
                 <th className="px-4 py-3">Order ID</th>
                 <th className="px-4 py-3">Invoice No.</th>
                 <th className="px-4 py-3 text-right">Amount</th>
+                <th className="px-4 py-3">Payment Method</th>
+                <th className="px-4 py-3">Transaction Ref / UTR</th>
+                <th className="px-4 py-3">Collected By</th>
                 <th className="px-4 py-3">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filtered.map(o => (
-                <tr key={o.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 text-slate-600">{o.date}</td>
-                  <td className="px-4 py-3 font-mono text-xs font-medium text-slate-700">{o.id}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-violet-700">{o.invoiceNumber ?? "—"}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-800">{fmt(o.value)}</td>
+              {filtered.map(r => (
+                <tr key={r._key} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 text-slate-600">{r.date}</td>
+                  <td className="px-4 py-3 font-mono text-xs font-medium text-slate-700">{r.orderId}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-violet-700">{r.invoiceNumber}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-800">{fmt(r.amount)}</td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_COLORS[o.status] ?? "bg-slate-100 text-slate-500"}`}>
-                      {o.status}
+                    {r.paymentMethod !== "—" ? (
+                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${METHOD_COLORS[r.paymentMethod] ?? "bg-slate-100 text-slate-600"}`}>
+                        {r.paymentMethod}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs text-slate-500">{r.transactionRef}</td>
+                  <td className="px-4 py-3 text-slate-600">{r.collectedBy}</td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_COLORS[r.status] ?? "bg-slate-100 text-slate-500"}`}>
+                      {r.status}
                     </span>
                   </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-5 py-8 text-center text-slate-400">
-                    {orders.length === 0
-                      ? "No completed payments yet. Orders appear here when Payment Completed or Order Closed."
-                      : "No transactions match your search."}
+                  <td colSpan={8} className="px-5 py-8 text-center text-slate-400">
+                    No transactions match your search.
                   </td>
                 </tr>
               )}
@@ -149,7 +367,7 @@ export function PaymentHistoryPage() {
         </div>
       </div>
 
-      {orders.length === 0 && (
+      {allRows.length === 0 && (
         <div className="mt-4 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
           <AlertCircle className="h-4 w-4 shrink-0" />
           Payment history populates automatically when the warehouse marks orders as Payment Completed or Order Closed.

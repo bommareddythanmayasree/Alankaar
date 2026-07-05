@@ -4,7 +4,6 @@ import { Minus, Plus, ShoppingCart, Trash2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../../../app/branch/branch-context";
 import { CART_FAB_ID } from "./fly-to-cart";
-import { formatCurrency } from "../../../shared/utils/format-currency";
 
 // ── Mini Cart Drawer ──────────────────────────────────────────────────────────
 

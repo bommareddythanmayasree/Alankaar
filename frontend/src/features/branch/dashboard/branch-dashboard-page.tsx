@@ -74,7 +74,7 @@ export function BranchDashboardPage() {
             { label: "In Production",       value: kpi.inProduction,       icon: <PlayCircle className="h-5 w-5" />,    accent: "bg-blue-500/20" },
             { label: "Ready For Dispatch",  value: kpi.readyForDispatch,   icon: <Truck className="h-5 w-5" />,         accent: "bg-violet-500/20" },
             { label: "Pending Deliveries",  value: kpi.pendingDeliveries,  icon: <PackageCheck className="h-5 w-5" />,  accent: "bg-white/10" },
-            { label: "Outstanding Payments",value: kpi.outstandingPayments,icon: <CreditCard className="h-5 w-5" />,   accent: "bg-amber-500/20" },
+            { label: "Outstanding Payments",value: formatCurrency(kpi.outstandingPayments),icon: <CreditCard className="h-5 w-5" />,   accent: "bg-amber-500/20" },
             { label: "Advance Orders",      value: kpi.advanceOrders,      icon: <ShoppingBag className="h-5 w-5" />,   accent: "bg-white/10" },
           ].map(c => (
             <div key={c.label} className={`rounded-lg ${c.accent} p-3`}>
@@ -86,38 +86,6 @@ export function BranchDashboardPage() {
         </div>
       </div>
 
-      {/* ── Active Order Status Banners ─────────────────────────────────── */}
-      {(() => {
-        const active = branchOrders.filter(o =>
-          ["Production Started","Added To Production","Ready For Dispatch","Dispatched","Delivered","Bill Generated"].includes(o.lifecycleStatus)
-        ).slice(0, 3);
-        if (active.length === 0) return null;
-        return (
-          <div className="mb-5 space-y-2">
-            {active.map(order => {
-              const cfg = {
-                "Production Started":  { bg: "bg-blue-600",    text: "YOUR ORDER IS IN PRODUCTION",          icon: <PlayCircle className="h-4 w-4" /> },
-                "Added To Production": { bg: "bg-blue-600",    text: "YOUR ORDER IS IN PRODUCTION",          icon: <PlayCircle className="h-4 w-4" /> },
-                "Ready For Dispatch":  { bg: "bg-violet-600",  text: "READY FOR DISPATCH",                    icon: <Truck className="h-4 w-4" /> },
-                "Dispatched":          { bg: "bg-indigo-600",  text: "OUT FOR DELIVERY",                      icon: <Truck className="h-4 w-4" /> },
-                "Delivered":           { bg: "bg-amber-500",   text: "PAYMENT PENDING",                       icon: <CreditCard className="h-4 w-4" /> },
-                "Bill Generated":      { bg: "bg-amber-500",   text: "PAYMENT PENDING — BILL GENERATED",      icon: <CreditCard className="h-4 w-4" /> },
-              }[order.lifecycleStatus as string] ?? { bg: "bg-slate-600", text: order.lifecycleStatus, icon: <ClipboardList className="h-4 w-4" /> };
-              return (
-                <button key={order.orderId} onClick={() => navigate("/branch/my-orders")}
-                  className={`${cfg.bg} flex w-full items-center gap-3 rounded-xl px-5 py-3 text-left text-white hover:opacity-90 transition-opacity`}>
-                  {cfg.icon}
-                  <div className="flex-1">
-                    <span className="text-sm font-bold tracking-wide">{cfg.text}</span>
-                    <span className="ml-3 text-xs text-white/75">{order.orderId} · {order.branch}</span>
-                  </div>
-                  <span className="text-xs text-white/70">View &rarr;</span>
-                </button>
-              );
-            })}
-          </div>
-        );
-      })()}
       {/* ── End Workflow ───────────────────────────────────────────────── */}
 
       {/* Quick Stats */}

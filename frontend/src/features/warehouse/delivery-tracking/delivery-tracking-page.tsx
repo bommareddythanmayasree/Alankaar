@@ -1,137 +1,84 @@
 import { useState, useEffect, useCallback } from "react";
-import { PackageCheck, Truck, AlertTriangle, CheckCircle2, ClipboardList } from "lucide-react";
+import { PackageCheck, Truck, AlertTriangle, CheckCircle2, ClipboardList, ChevronDown, ChevronRight } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
-import { MOCK_DELIVERY_EXCEPTIONS } from "../../../shared/data/workflow-mock-data";
 import {
+  getDispatchBatches,
+  getBatchDeliveryConfirmations,
+  confirmBatchDelivery,
   getWorkflowOrders,
-  getDeliveryExceptions,
-  confirmDelivery,
-  type WorkflowOrderLive,
-  type WorkflowLifecycleStatus,
-  type DeliveryExceptionRecord,
-  type DeliveryExceptionItem,
-  type DeliveryExceptionType,
+  LOGISTICS_REASONS,
+  type DispatchBatch,
+  type DispatchBatchProduct,
+  type ProductDeliveryLine,
+  type ProductDeliveryStatus,
+  type BatchDeliveryConfirmation,
 } from "../../../shared/lib/demo-store";
-
-// ── Stages shown in this module ───────────────────────────────────────────────
-// "Delivered" is included so that orders marked Delivered from Orders Workflow
-// immediately appear in the Awaiting Confirmation table without a page refresh.
-const DISPATCH_STAGE_STATUSES: WorkflowLifecycleStatus[] = [
-  "Morning Dispatch", "Evening Dispatch", "In Transit", "Delivered",
-];
-
-// Statuses that indicate an order has been through delivery confirmation
-const POST_DELIVERY_STATUSES: WorkflowLifecycleStatus[] = [
-  "Delivered", "Invoice Generated", "Payment Pending", "Payment Completed", "Order Closed",
-];
+import { WORKFLOW_ORDERS } from "../../../shared/data/workflow-mock-data";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function exceptionBadge(type: DeliveryExceptionType) {
-  if (!type) return null;
-  const cfg = {
-    "Partially Produced":    { bg: "bg-amber-100 text-amber-700",   label: "Partially Produced" },
-    "Missing During Loading":{ bg: "bg-orange-100 text-orange-700", label: "Missing During Loading" },
-    "Lost During Transit":   { bg: "bg-red-100 text-red-700",       label: "Lost During Transit" },
-  }[type];
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${cfg.bg}`}>
-      {cfg.label}
-    </span>
-  );
-}
-
-function deliveryStatusBadge(status: "Delivered Successfully" | "Partial Delivery") {
-  return status === "Delivered Successfully"
-    ? "bg-emerald-100 text-emerald-700"
-    : "bg-amber-100 text-amber-700";
-}
-
-// ── Exception item row builder ────────────────────────────────────────────────
-function buildDefaultExceptionItem(
-  product: string,
-  unit: string,
-  orderedQty: number,
-): DeliveryExceptionItem {
-  return {
-    product,
-    unit,
-    orderedQty,
-    producedQty: orderedQty,
-    loadedQty: orderedQty,
-    receivedQty: orderedQty,
-    difference: 0,
-    exceptionType: null,
-    exceptionReason: "",
+function statusBadge(status: ProductDeliveryStatus | "Delivered Successfully") {
+  const map: Record<string, string> = {
+    "Delivered Successfully": "bg-emerald-100 text-emerald-700",
+    "Delivered":              "bg-emerald-100 text-emerald-700",
+    "Partial Delivery":       "bg-amber-100 text-amber-700",
+    "Pending Delivery":       "bg-sky-100 text-sky-700",
+    "Not Delivered":          "bg-red-100 text-red-700",
   };
+  return map[status] ?? "bg-slate-100 text-slate-600";
 }
 
-// ── Delivery Confirmation Modal ───────────────────────────────────────────────
-const EXCEPTION_REASONS: Record<NonNullable<DeliveryExceptionType>, string[]> = {
-  "Partially Produced":    ["Insufficient raw materials", "Production capacity reached", "Quality rejected"],
-  "Missing During Loading":["Loading mistake", "Item left in warehouse", "Driver error"],
-  "Lost During Transit":   ["Package lost", "Transit damage", "Mishandled during transport"],
-};
+function batchStatusBadge(status: DispatchBatch["status"]) {
+  if (status === "In Transit") return "bg-sky-100 text-sky-700";
+  if (status === "Delivered")  return "bg-emerald-100 text-emerald-700";
+  return "bg-amber-100 text-amber-700"; // Scheduled
+}
 
-function DeliveryConfirmModal({
-  order,
+// ── Batch Delivery Confirm Modal ──────────────────────────────────────────────
+function BatchDeliveryConfirmModal({
+  batch,
   onClose,
   onConfirm,
 }: {
-  order: WorkflowOrderLive;
+  batch: DispatchBatch;
   onClose: () => void;
-  onConfirm: (record: DeliveryExceptionRecord) => void;
+  onConfirm: (lines: ProductDeliveryLine[]) => void;
 }) {
-  const [items, setItems] = useState<DeliveryExceptionItem[]>(
-    order.items.map(i =>
-      buildDefaultExceptionItem(i.product, i.unit, i.approvedQty > 0 ? i.approvedQty : i.orderedQty)
-    )
+  const [lines, setLines] = useState<ProductDeliveryLine[]>(
+    batch.products.map(p => ({
+      product: p.product,
+      unit: p.unit,
+      orderedQty: p.qty,
+      loadedQty: p.qty,
+      deliveredQty: p.qty,
+      pendingQty: 0,
+      status: "Delivered" as ProductDeliveryStatus,
+      reason: "",
+    }))
   );
 
-  function updateItem(idx: number, patch: Partial<DeliveryExceptionItem>) {
-    setItems(prev => {
+  function updateLine(idx: number, patch: Partial<ProductDeliveryLine>) {
+    setLines(prev => {
       const next = [...prev];
       const updated = { ...next[idx], ...patch };
-      // Auto-recalculate difference
-      updated.difference = updated.receivedQty - updated.orderedQty;
-      // Auto-derive exceptionType when qtys change
-      if (!patch.exceptionType) {
-        if (updated.producedQty < updated.orderedQty) {
-          updated.exceptionType = "Partially Produced";
-        } else if (updated.loadedQty < updated.producedQty) {
-          updated.exceptionType = "Missing During Loading";
-        } else if (updated.receivedQty < updated.loadedQty) {
-          updated.exceptionType = "Lost During Transit";
-        } else {
-          updated.exceptionType = null;
-          updated.exceptionReason = "";
-        }
+      const deliveredQty = updated.deliveredQty;
+      const loadedQty = updated.loadedQty;
+      updated.pendingQty = Math.max(0, loadedQty - deliveredQty);
+      if (deliveredQty >= loadedQty) {
+        updated.status = "Delivered";
+        updated.reason = "";
+      } else if (deliveredQty === 0) {
+        updated.status = "Not Delivered";
+      } else {
+        updated.status = "Partial Delivery";
       }
       next[idx] = updated;
       return next;
     });
   }
 
-  function handleConfirm() {
-    const hasException = items.some(i => i.difference < 0);
-    const deliveryStatus = hasException ? "Partial Delivery" : "Delivered Successfully";
-    // Derive receivedValue from receivedQty proportional to order value
-    const totalOrdered = items.reduce((s, i) => s + i.orderedQty, 0);
-    const totalReceived = items.reduce((s, i) => s + i.receivedQty, 0);
-    const receivedValue = totalOrdered > 0
-      ? Math.round((totalReceived / totalOrdered) * order.value)
-      : order.value;
-    onConfirm({
-      orderId: order.id,
-      branch: order.branch,
-      date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-      items,
-      orderValue: order.value,
-      receivedValue,
-      deliveryStatus,
-    });
-  }
+  const hasException = lines.some(l => l.pendingQty > 0);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4">
@@ -139,66 +86,86 @@ function DeliveryConfirmModal({
         <div className="border-b border-slate-100 px-5 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-semibold text-slate-800">Delivery Confirmation</h3>
-              <p className="text-xs text-slate-500 mt-0.5">{order.id} — {order.branch}</p>
+              <h3 className="font-semibold text-slate-800">Confirm Batch Delivery</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {batch.batchId} — Batch {batch.batchNumber} — {batch.driverName} / {batch.vehicleNumber}
+              </p>
             </div>
-            <button onClick={onClose} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+            <button
+              onClick={onClose}
+              className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
               Cancel
             </button>
           </div>
         </div>
+
         <div className="p-5 space-y-4">
-          <p className="text-xs text-slate-500">Enter actual quantities received. Exception types are detected automatically.</p>
-          {items.map((item, idx) => (
-            <div key={item.product} className="rounded-xl border border-slate-200 p-4 space-y-3">
+          <p className="text-xs text-slate-500">Enter actual quantities delivered for each product in this batch.</p>
+
+          {lines.map((line, idx) => (
+            <div key={line.product} className="rounded-xl border border-slate-200 p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-slate-800">{item.product}</span>
-                <span className="text-xs text-slate-400">Ordered: {item.orderedQty} {item.unit}</span>
+                <span className="font-semibold text-slate-800">{line.product}</span>
+                <span className="text-xs text-slate-400">Loaded: {line.loadedQty} {line.unit}</span>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+
+              <div className="grid grid-cols-2 gap-3">
                 <label className="space-y-1">
-                  <span className="text-xs text-slate-500">Produced Qty</span>
-                  <input type="number" min={0} max={item.orderedQty} value={item.producedQty}
-                    onChange={e => updateItem(idx, { producedQty: Number(e.target.value), loadedQty: Math.min(Number(e.target.value), item.loadedQty), receivedQty: Math.min(Number(e.target.value), item.loadedQty, item.receivedQty) })}
-                    className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-[#0A3A92]" />
+                  <span className="text-xs text-slate-500">Delivered Qty</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={line.loadedQty}
+                    value={line.deliveredQty}
+                    onChange={e => updateLine(idx, { deliveredQty: Number(e.target.value) })}
+                    className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-[#0A3A92]"
+                  />
                 </label>
-                <label className="space-y-1">
-                  <span className="text-xs text-slate-500">Loaded Qty</span>
-                  <input type="number" min={0} max={item.producedQty} value={item.loadedQty}
-                    onChange={e => updateItem(idx, { loadedQty: Number(e.target.value), receivedQty: Math.min(Number(e.target.value), item.receivedQty) })}
-                    className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-[#0A3A92]" />
-                </label>
-                <label className="space-y-1">
-                  <span className="text-xs text-slate-500">Received Qty</span>
-                  <input type="number" min={0} max={item.loadedQty} value={item.receivedQty}
-                    onChange={e => updateItem(idx, { receivedQty: Number(e.target.value) })}
-                    className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-[#0A3A92]" />
-                </label>
-              </div>
-              {item.exceptionType && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <span className="text-xs text-slate-500">Exception Type</span>
-                    <div>{exceptionBadge(item.exceptionType)}</div>
+                <div className="space-y-1">
+                  <span className="text-xs text-slate-500">Pending Qty</span>
+                  <div className={`rounded-md border px-2 py-1.5 text-sm font-semibold ${line.pendingQty > 0 ? "border-amber-200 text-amber-700 bg-amber-50" : "border-slate-200 text-slate-400 bg-slate-50"}`}>
+                    {line.pendingQty} {line.unit}
                   </div>
-                  <label className="space-y-1">
-                    <span className="text-xs text-slate-500">Reason</span>
-                    <select value={item.exceptionReason}
-                      onChange={e => updateItem(idx, { exceptionReason: e.target.value })}
-                      className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-[#0A3A92]">
-                      <option value="">Select reason…</option>
-                      {EXCEPTION_REASONS[item.exceptionType].map(r => (
-                        <option key={r} value={r}>{r}</option>
-                      ))}
-                    </select>
-                  </label>
                 </div>
+              </div>
+
+              {line.pendingQty > 0 && (
+                <label className="block space-y-1">
+                  <span className="text-xs text-slate-500">Reason for Pending Qty</span>
+                  <select
+                    value={line.reason}
+                    onChange={e => updateLine(idx, { reason: e.target.value })}
+                    className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-[#0A3A92]"
+                  >
+                    <option value="">Select reason…</option>
+                    {LOGISTICS_REASONS.map(r => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </label>
               )}
+
+              <div>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadge(line.status)}`}>
+                  {line.status}
+                </span>
+              </div>
             </div>
           ))}
-          <button onClick={handleConfirm}
-            className="w-full rounded-lg bg-[#0B2C66] py-2.5 text-sm font-semibold text-white hover:bg-[#0a2559] transition-colors">
-            Confirm Delivery
+
+          {hasException && (
+            <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+              <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+              Some items have pending quantities. Please select a reason for each.
+            </div>
+          )}
+
+          <button
+            onClick={() => onConfirm(lines)}
+            className="w-full rounded-lg bg-[#0B2C66] py-2.5 text-sm font-semibold text-white hover:bg-[#0a2559] transition-colors"
+          >
+            Confirm Batch Delivery
           </button>
         </div>
       </div>
@@ -206,99 +173,302 @@ function DeliveryConfirmModal({
   );
 }
 
-// ── Exception Table ───────────────────────────────────────────────────────────
-function ExceptionTable({ record }: { record: DeliveryExceptionRecord }) {
+// ── Order-level status derived from its batches ───────────────────────────────
+function deriveOrderStatus(batches: DispatchBatch[]): string {
+  const statuses = batches.map(b => b.status);
+  if (statuses.every(s => s === "Delivered")) return "Delivered";
+  if (statuses.some(s => s === "In Transit")) return "In Transit";
+  if (statuses.some(s => s === "Delivered")) return "Partially Delivered";
+  return "Scheduled";
+}
+
+function orderStatusBadge(status: string) {
+  if (status === "Delivered")          return "bg-emerald-100 text-emerald-700";
+  if (status === "In Transit")         return "bg-sky-100 text-sky-700";
+  if (status === "Partially Delivered") return "bg-amber-100 text-amber-700";
+  return "bg-slate-100 text-slate-500";
+}
+
+// ── Batch action area: conditionally renders confirm button, delivered badge,
+//    or "not yet dispatched" indicator based on batch status ──────────────────
+function BatchAction({
+  batch,
+  onConfirm,
+}: {
+  batch: DispatchBatch;
+  onConfirm: (batch: DispatchBatch) => void;
+}) {
+  if (batch.status === "In Transit") {
+    return (
+      <button
+        onClick={() => onConfirm(batch)}
+        className="rounded-md bg-[#0B2C66] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0a2559] transition-colors flex-shrink-0"
+      >
+        Confirm Delivery
+      </button>
+    );
+  }
+
+  if (batch.status === "Delivered") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1.5 text-xs font-semibold text-emerald-700 flex-shrink-0">
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        Delivered
+      </span>
+    );
+  }
+
+  // Scheduled — not yet dispatched
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[700px] text-left text-sm">
-        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-          <tr>
-            <th className="px-4 py-2">Product</th>
-            <th className="px-4 py-2 text-right">Ordered</th>
-            <th className="px-4 py-2 text-right">Produced</th>
-            <th className="px-4 py-2 text-right">Loaded</th>
-            <th className="px-4 py-2 text-right">Received</th>
-            <th className="px-4 py-2 text-right">Difference</th>
-            <th className="px-4 py-2">Exception Reason</th>
-            <th className="px-4 py-2">Delivery Status</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {record.items.map(item => {
-            const hasException = item.difference < 0;
-            const deliveryStatus = hasException ? "Partial Delivery" : "Delivered Successfully";
-            return (
-              <tr key={item.product} className={`hover:bg-slate-50 ${hasException ? "bg-amber-50/30" : ""}`}>
-                <td className="px-4 py-2.5 font-medium text-slate-800">{item.product}</td>
-                <td className="px-4 py-2.5 text-right text-slate-600">{item.orderedQty} {item.unit}</td>
-                <td className={`px-4 py-2.5 text-right font-semibold ${item.producedQty < item.orderedQty ? "text-amber-600" : "text-slate-700"}`}>
-                  {item.producedQty} {item.unit}
-                </td>
-                <td className={`px-4 py-2.5 text-right font-semibold ${item.loadedQty < item.producedQty ? "text-orange-600" : "text-slate-700"}`}>
-                  {item.loadedQty} {item.unit}
-                </td>
-                <td className={`px-4 py-2.5 text-right font-semibold ${item.receivedQty < item.loadedQty ? "text-red-600" : "text-emerald-600"}`}>
-                  {item.receivedQty} {item.unit}
-                </td>
-                <td className={`px-4 py-2.5 text-right font-semibold ${hasException ? "text-red-600" : "text-slate-400"}`}>
-                  {hasException ? `${item.difference} ${item.unit}` : "—"}
-                </td>
-                <td className="px-4 py-2.5">
-                  {item.exceptionType
-                    ? <div className="space-y-0.5">
-                        {exceptionBadge(item.exceptionType)}
-                        {item.exceptionReason && <p className="text-[10px] text-slate-500">{item.exceptionReason}</p>}
-                      </div>
-                    : <span className="text-slate-400">—</span>
-                  }
-                </td>
-                <td className="px-4 py-2.5">
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${deliveryStatusBadge(deliveryStatus)}`}>
-                    {deliveryStatus}
-                  </span>
-                </td>
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-500 flex-shrink-0 cursor-not-allowed" title="Batch must be marked In Transit before delivery can be confirmed">
+      Awaiting Dispatch
+    </span>
+  );
+}
+
+// ── Expandable Order Group ────────────────────────────────────────────────────
+function OrderBatchGroup({
+  orderId,
+  branch,
+  batches,
+  onConfirm,
+}: {
+  orderId: string;
+  branch: string;
+  batches: DispatchBatch[];
+  onConfirm: (batch: DispatchBatch) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const overallStatus = deriveOrderStatus(batches);
+
+  return (
+    <div className="border-b border-slate-100 last:border-b-0">
+      {/* Order header row */}
+      <div
+        className="flex items-center justify-between gap-3 px-5 py-4 cursor-pointer hover:bg-slate-50 select-none"
+        onClick={() => setExpanded(e => !e)}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          {expanded
+            ? <ChevronDown className="h-4 w-4 text-slate-400 flex-shrink-0" />
+            : <ChevronRight className="h-4 w-4 text-slate-400 flex-shrink-0" />
+          }
+          <span className="font-mono font-bold text-[#0B2C66] text-sm">{orderId}</span>
+        </div>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <span className="text-xs text-slate-400">Dispatch Batches: {batches.length}</span>
+          <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${orderStatusBadge(overallStatus)}`}>
+            {overallStatus}
+          </span>
+          <span className="text-xs text-[#0B2C66] font-medium">
+            {expanded ? "▲ Hide Batches" : "▼ View Batches"}
+          </span>
+        </div>
+      </div>
+
+      {/* Batch cards */}
+      {expanded && (
+        <div className="px-5 pb-4 space-y-3">
+          {batches.map(batch => (
+            <div key={batch.batchId} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="space-y-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-xs font-bold text-[#1B4DB1]">{batch.batchId}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${batch.slot === "Morning" ? "bg-amber-100 text-amber-700" : "bg-indigo-100 text-indigo-700"}`}>
+                      {batch.slot} Dispatch
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${batchStatusBadge(batch.status)}`}>
+                      {batch.status}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    Driver: {batch.driverName} &nbsp;·&nbsp; {batch.vehicleNumber}
+                  </div>
+                  <div className="mt-2 text-xs text-slate-600">
+                    <span className="font-medium text-slate-700">Products:</span>
+                    <ul className="mt-1 space-y-0.5 list-none pl-0">
+                      {batch.products.map((p: DispatchBatchProduct) => (
+                        <li key={p.product} className="before:content-['•'] before:mr-1.5 before:text-slate-400">
+                          {p.product} — {p.qty} {p.unit}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+                <BatchAction batch={batch} onConfirm={onConfirm} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Single confirmed batch row (shown inside an expanded order group) ──────────
+function ConfirmedBatchItem({ conf }: { conf: BatchDeliveryConfirmation }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      {/* Batch header */}
+      <div
+        className="flex items-center justify-between flex-wrap gap-2 px-4 py-3 cursor-pointer hover:bg-slate-50 select-none"
+        onClick={() => setExpanded(e => !e)}
+      >
+        <div className="flex items-center gap-2">
+          {expanded
+            ? <ChevronDown className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+            : <ChevronRight className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+          }
+          <span className="font-mono text-xs font-bold text-[#1B4DB1]">Batch {conf.batchNumber}</span>
+          <span className="text-xs text-slate-400">{conf.confirmedAt}</span>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-xs text-slate-500">
+            Invoice Value: <span className="font-semibold text-slate-800">₹{conf.invoicedValue.toLocaleString("en-IN")}</span>
+          </span>
+          <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${statusBadge(conf.overallStatus)}`}>
+            {conf.overallStatus}
+          </span>
+          {conf.overallStatus === "Delivered Successfully" || conf.overallStatus === "Delivered"
+            ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+            : <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+          }
+        </div>
+      </div>
+
+      {/* Product details table */}
+      {expanded && (
+        <div className="overflow-x-auto border-t border-slate-100">
+          <table className="w-full min-w-[600px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-2">Product</th>
+                <th className="px-4 py-2 text-right">Ordered</th>
+                <th className="px-4 py-2 text-right">Loaded</th>
+                <th className="px-4 py-2 text-right">Delivered</th>
+                <th className="px-4 py-2 text-right">Pending</th>
+                <th className="px-4 py-2">Reason</th>
+                <th className="px-4 py-2">Status</th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {conf.lines.map(line => (
+                <tr key={line.product} className={line.pendingQty > 0 ? "bg-amber-50/30" : ""}>
+                  <td className="px-4 py-2.5 font-medium text-slate-800">{line.product}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-600">{line.orderedQty} {line.unit}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-600">{line.loadedQty} {line.unit}</td>
+                  <td className={`px-4 py-2.5 text-right font-semibold ${line.deliveredQty < line.loadedQty ? "text-amber-600" : "text-emerald-600"}`}>
+                    {line.deliveredQty} {line.unit}
+                  </td>
+                  <td className={`px-4 py-2.5 text-right font-semibold ${line.pendingQty > 0 ? "text-red-600" : "text-slate-400"}`}>
+                    {line.pendingQty > 0 ? `${line.pendingQty} ${line.unit}` : "—"}
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-slate-500">{line.reason || "—"}</td>
+                  <td className="px-4 py-2.5">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadge(line.status)}`}>
+                      {line.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Confirmed order group: groups all batch records belonging to one order ─────
+function ConfirmedOrderGroup({
+  orderId,
+  branch,
+  orderedValue,
+  batches,
+}: {
+  orderId: string;
+  branch: string;
+  orderedValue: number;
+  batches: BatchDeliveryConfirmation[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const totalInvoiced = batches.reduce((s, b) => s + b.invoicedValue, 0);
+
+  return (
+    <div className="border-b border-slate-100 last:border-b-0">
+      {/* Order header */}
+      <div
+        className="flex items-center justify-between gap-3 flex-wrap px-5 py-4 cursor-pointer hover:bg-slate-50 select-none"
+        onClick={() => setExpanded(e => !e)}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          {expanded
+            ? <ChevronDown className="h-4 w-4 text-slate-400 flex-shrink-0" />
+            : <ChevronRight className="h-4 w-4 text-slate-400 flex-shrink-0" />
+          }
+          <div className="min-w-0">
+            <span className="font-mono font-bold text-[#0B2C66] text-sm">{orderId}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 flex-shrink-0 flex-wrap">
+          <div className="text-xs text-slate-600 space-x-3">
+            <span>
+              Ordered Value: <span className="font-semibold text-slate-800">₹{orderedValue.toLocaleString("en-IN")}</span>
+            </span>
+            <span>
+              Invoice Value: <span className="font-semibold text-slate-800">₹{totalInvoiced.toLocaleString("en-IN")}</span>
+            </span>
+          </div>
+          <span className="text-xs text-slate-400">{batches.length} Batch Record{batches.length !== 1 ? "s" : ""}</span>
+          <span className="text-xs text-[#0B2C66] font-medium">
+            {expanded ? "▲ Hide Batch Records" : "▼ View Batch Records"}
+          </span>
+        </div>
+      </div>
+
+      {/* Individual batch records */}
+      {expanded && (
+        <div className="px-5 pb-4 space-y-3">
+          {batches.map(conf => (
+            <ConfirmedBatchItem key={conf.batchId} conf={conf} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
-export function DeliveryTrackingPage() {
-  const [inTransitOrders, setInTransitOrders] = useState<WorkflowOrderLive[]>([]);
-  const [confirmedRecords, setConfirmedRecords] = useState<DeliveryExceptionRecord[]>([]);
-  const [confirmingOrder, setConfirmingOrder] = useState<WorkflowOrderLive | null>(null);
+export function DeliveryConfirmationPage() {
+  const [allBatches, setAllBatches] = useState<DispatchBatch[]>([]);
+  const [confirmedBatches, setConfirmedBatches] = useState<BatchDeliveryConfirmation[]>([]);
+  const [confirmingBatch, setConfirmingBatch] = useState<DispatchBatch | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [branchByOrder, setBranchByOrder] = useState<Record<string, string>>({});
+  const [valueByOrder, setValueByOrder] = useState<Record<string, number>>({});
 
   const load = useCallback(() => {
-    const all = getWorkflowOrders();
-    const saved = getDeliveryExceptions();
-    const savedIds = new Set(saved.map(r => r.orderId));
+    const batches = getDispatchBatches();
+    const allConfs = getBatchDeliveryConfirmations();
+    const confirmedBatchIds = new Set(allConfs.map(c => c.batchId));
 
-    // Awaiting confirmation: in-transit/dispatched orders AND "Delivered" orders
-    // that haven't been confirmed yet (no saved exception record).
-    setInTransitOrders(
-      all.filter(o =>
-        DISPATCH_STAGE_STATUSES.includes(o.status as WorkflowLifecycleStatus) &&
-        !savedIds.has(o.id)
-      )
+    // Show all non-confirmed batches (Scheduled + In Transit) so warehouse
+    // users can see every batch. Delivered batches are shown via confirmed records.
+    setAllBatches(
+      batches.filter(b => b.status !== "Delivered" && !confirmedBatchIds.has(b.batchId))
     );
+    setConfirmedBatches(allConfs);
 
-    // Confirmation records: saved (live) exceptions first, then mock exceptions
-    // for orders that are in a post-delivery status and not already saved.
-    const merged = [
-      ...saved,
-      ...MOCK_DELIVERY_EXCEPTIONS.filter(r => {
-        if (savedIds.has(r.orderId)) return false;
-        const order = all.find(o => o.id === r.orderId);
-        // Include mock record if order has passed through delivery or doesn't exist in live data
-        return !order || POST_DELIVERY_STATUSES.includes(order.status as WorkflowLifecycleStatus);
-      }),
-    ];
-    setConfirmedRecords(merged);
+    const liveOrders = getWorkflowOrders();
+    const map: Record<string, string> = {};
+    const valMap: Record<string, number> = {};
+    // Seed static branch names first so live orders (which may be a subset) override them
+    WORKFLOW_ORDERS.forEach(o => { map[o.id] = o.branch; });
+    liveOrders.forEach(o => { map[o.id] = o.branch; valMap[o.id] = o.value; });
+    setBranchByOrder(map);
+    setValueByOrder(valMap);
   }, []);
 
   useEffect(() => {
@@ -316,18 +486,31 @@ export function DeliveryTrackingPage() {
     setTimeout(() => setToast(null), 3000);
   }
 
-  function handleConfirm(record: DeliveryExceptionRecord) {
-    confirmDelivery(record);
-    setConfirmingOrder(null);
-    showToast(`Delivery confirmed & invoice auto-generated for ${record.orderId}`);
+  function handleConfirm(lines: ProductDeliveryLine[]) {
+    if (!confirmingBatch) return;
+    confirmBatchDelivery(confirmingBatch.batchId, lines);
+    setConfirmingBatch(null);
+    showToast(`Batch ${confirmingBatch.batchId} delivery confirmed.`);
     load();
   }
 
-  const totalPartial = confirmedRecords.filter(r => r.deliveryStatus === "Partial Delivery").length;
-  const totalDelivered = confirmedRecords.filter(r => r.deliveryStatus === "Delivered Successfully").length;
+  const inTransitCount  = allBatches.filter(b => b.status === "In Transit").length;
+  const awaitingCount   = allBatches.length;
+  const partialCount    = confirmedBatches.filter(c => c.overallStatus === "Partial Delivery").length;
+  const deliveredCount  = confirmedBatches.filter(c =>
+    c.overallStatus === "Delivered Successfully" || c.overallStatus === "Delivered"
+  ).length;
+
+  // Group visible batches by orderId
+  const grouped = new Map<string, DispatchBatch[]>();
+  allBatches.forEach(b => {
+    const list = grouped.get(b.orderId) ?? [];
+    list.push(b);
+    grouped.set(b.orderId, list);
+  });
 
   return (
-    <ErpLayout sidebarItems={buildSidebar(WAREHOUSE_NAV, [...WAREHOUSE_SIDEBAR_LABELS], "Delivery Tracking")}>
+    <ErpLayout sidebarItems={buildSidebar(WAREHOUSE_NAV, [...WAREHOUSE_SIDEBAR_LABELS], "Delivery Confirmation")}>
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 rounded-lg bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg">
           {toast}
@@ -335,19 +518,19 @@ export function DeliveryTrackingPage() {
       )}
 
       <div className="mb-5">
-        <h2 className="text-2xl font-semibold text-slate-800">Delivery Tracking</h2>
+        <h2 className="text-2xl font-semibold text-slate-800">Delivery Confirmation</h2>
         <p className="mt-1 text-slate-500">
-          Dispatch Loading → In Transit → Delivery Confirmation. Track exceptions per product.
+          Confirm deliveries per dispatch batch. Order status is derived automatically from all batch statuses.
         </p>
       </div>
 
       {/* KPI cards */}
       <div className="mb-5 grid grid-cols-2 gap-4 md:grid-cols-4">
         {[
-          { label: "In Transit",           value: inTransitOrders.length,  bg: "bg-sky-50",     color: "text-sky-600",     Icon: Truck },
-          { label: "Awaiting Confirmation", value: inTransitOrders.length, bg: "bg-amber-50",   color: "text-amber-600",   Icon: ClipboardList },
-          { label: "Partial Delivery",      value: totalPartial,           bg: "bg-orange-50",  color: "text-orange-600",  Icon: AlertTriangle },
-          { label: "Delivered Successfully",value: totalDelivered,         bg: "bg-emerald-50", color: "text-emerald-600", Icon: PackageCheck },
+          { label: "In Transit",            value: inTransitCount,  bg: "bg-sky-50",     color: "text-sky-600",     Icon: Truck },
+          { label: "Awaiting Confirmation", value: awaitingCount,   bg: "bg-amber-50",   color: "text-amber-600",   Icon: ClipboardList },
+          { label: "Partial Delivery",      value: partialCount,    bg: "bg-orange-50",  color: "text-orange-600",  Icon: AlertTriangle },
+          { label: "Delivered",             value: deliveredCount,  bg: "bg-emerald-50", color: "text-emerald-600", Icon: PackageCheck },
         ].map(c => (
           <div key={c.label} className="rounded-xl border border-slate-200 bg-white p-4">
             <div className={`mb-2 inline-flex h-9 w-9 items-center justify-center rounded-full ${c.bg}`}>
@@ -359,114 +542,76 @@ export function DeliveryTrackingPage() {
         ))}
       </div>
 
-      {/* In Transit — Awaiting Confirmation */}
-      {inTransitOrders.length > 0 && (
+      {/* All active batches grouped by order */}
+      {grouped.size > 0 && (
         <div className="mb-6 rounded-xl border border-sky-200 bg-white">
           <div className="flex items-center gap-2 border-b border-sky-100 bg-sky-50 px-5 py-3 rounded-t-xl">
             <Truck className="h-4 w-4 text-sky-600" />
-            <span className="font-semibold text-sky-800">Orders In Transit — Awaiting Delivery Confirmation</span>
-            <span className="ml-auto rounded-full bg-sky-600 px-2 py-0.5 text-xs font-bold text-white">{inTransitOrders.length}</span>
+            <span className="font-semibold text-sky-800">Dispatch Batches — Delivery Confirmation</span>
+            <span className="ml-auto rounded-full bg-sky-600 px-2 py-0.5 text-xs font-bold text-white">{allBatches.length}</span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px] text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-5 py-3">Order ID</th>
-                  <th className="px-5 py-3">Branch</th>
-                  <th className="px-5 py-3">Priority</th>
-                  <th className="px-5 py-3">Products</th>
-                  <th className="px-5 py-3 text-right">Value</th>
-                  <th className="px-5 py-3">Stage</th>
-                  <th className="px-5 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {inTransitOrders.map(order => (
-                  <tr key={order.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-3 font-mono text-xs font-semibold text-[#1B4DB1]">{order.id}</td>
-                    <td className="px-5 py-3 text-slate-700">{order.branch}</td>
-                    <td className="px-5 py-3">
-                      <span className={`text-xs font-semibold ${order.priority === "Urgent" ? "text-red-600" : "text-slate-500"}`}>{order.priority}</span>
-                    </td>
-                    <td className="px-5 py-3 text-slate-600 text-xs">
-                      {order.items.map(i => `${i.product}: ${i.approvedQty > 0 ? i.approvedQty : i.orderedQty} ${i.unit}`).join(", ")}
-                    </td>
-                    <td className="px-5 py-3 text-right font-semibold text-slate-800">₹{order.value.toLocaleString("en-IN")}</td>
-                    <td className="px-5 py-3">
-                      <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">{order.status}</span>
-                    </td>
-                    <td className="px-5 py-3">
-                      <button
-                        onClick={() => setConfirmingOrder(order)}
-                        className="rounded-md bg-[#0B2C66] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0a2559] transition-colors">
-                        Confirm Delivery
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {[...grouped.entries()].map(([orderId, batches]) => (
+            <OrderBatchGroup
+              key={orderId}
+              orderId={orderId}
+              branch={branchByOrder[orderId] ?? ""}
+              batches={batches}
+              onConfirm={setConfirmingBatch}
+            />
+          ))}
+        </div>
+      )}
+
+      {grouped.size === 0 && confirmedBatches.length === 0 && (
+        <div className="mb-6 rounded-xl border border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-500">
+          No dispatch batches awaiting confirmation. Batches will appear here once created from Orders Workflow.
+        </div>
+      )}
+
+      {/* Confirmed batch records — grouped by order */}
+      {confirmedBatches.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white">
+          <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
+            <PackageCheck className="h-4 w-4 text-emerald-600" />
+            <h3 className="font-semibold text-slate-800">Batch Delivery Records</h3>
+            <p className="ml-1 text-xs text-slate-400">Click an order to expand batch records</p>
+            <span className="ml-auto rounded-full bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-600">
+              {confirmedBatches.length}
+            </span>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {(() => {
+              const groupedConf = new Map<string, BatchDeliveryConfirmation[]>();
+              confirmedBatches.forEach(c => {
+                const list = groupedConf.get(c.orderId) ?? [];
+                list.push(c);
+                groupedConf.set(c.orderId, list);
+              });
+              return [...groupedConf.entries()].map(([orderId, batches]) => (
+                <ConfirmedOrderGroup
+                  key={orderId}
+                  orderId={orderId}
+                  branch={branchByOrder[orderId] ?? batches[0]?.branch ?? "—"}
+                  orderedValue={valueByOrder[orderId] ?? 0}
+                  batches={batches}
+                />
+              ));
+            })()}
           </div>
         </div>
       )}
 
-      {/* Delivery Confirmation Records */}
-      <div className="rounded-xl border border-slate-200 bg-white">
-        <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
-          <PackageCheck className="h-4 w-4 text-emerald-600" />
-          <h3 className="font-semibold text-slate-800">Delivery Confirmation Records</h3>
-          <p className="ml-1 text-xs text-slate-400">Invoice auto-generated on delivery using received quantity</p>
-          <span className="ml-auto rounded-full bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-600">{confirmedRecords.length}</span>
-        </div>
-
-        {confirmedRecords.length === 0 ? (
-          <div className="px-5 py-10 text-center text-sm text-slate-500">
-            No delivery confirmations yet. Confirm deliveries for in-transit orders above.
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {confirmedRecords.map(record => (
-              <div key={record.orderId} className="px-5 py-4">
-                <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono text-sm font-bold text-[#0B2C66]">{record.orderId}</span>
-                    <span className="text-sm text-slate-600">{record.branch}</span>
-                    <span className="text-xs text-slate-400">{record.date}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {record.orderValue != null && record.orderValue !== record.receivedValue && (
-                      <>
-                        <span className="text-xs text-slate-500">Actual Order Amount:</span>
-                        <span className="font-semibold text-slate-800">₹{record.orderValue.toLocaleString("en-IN")}</span>
-                        <span className="text-slate-300">|</span>
-                      </>
-                    )}
-                    <span className="text-xs text-slate-500">Invoice Amount:</span>
-                    <span className="font-semibold text-slate-800">₹{record.receivedValue.toLocaleString("en-IN")}</span>
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${deliveryStatusBadge(record.deliveryStatus)}`}>
-                      {record.deliveryStatus}
-                    </span>
-                    {record.deliveryStatus === "Delivered Successfully"
-                      ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                      : <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    }
-                  </div>
-                </div>
-                <ExceptionTable record={record} />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* Confirmation modal */}
-      {confirmingOrder && (
-        <DeliveryConfirmModal
-          order={confirmingOrder}
-          onClose={() => setConfirmingOrder(null)}
+      {confirmingBatch && (
+        <BatchDeliveryConfirmModal
+          batch={confirmingBatch}
+          onClose={() => setConfirmingBatch(null)}
           onConfirm={handleConfirm}
         />
       )}
     </ErpLayout>
   );
 }
+
+// Backwards-compat alias
+export { DeliveryConfirmationPage as DeliveryTrackingPage };

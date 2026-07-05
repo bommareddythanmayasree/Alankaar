@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Zap, CheckCircle2, Clock, ChevronRight,
   GitBranch, AlertTriangle,
-  BarChart3, ChevronDown,
+  BarChart3, Plus, Package,
 } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
@@ -14,13 +14,19 @@ import {
 import {
   getWorkflowOrders,
   updateWorkflowOrderStatus,
-  assignDispatch,
   getDriverPool,
   getVehiclePool,
+  resetDriverVehiclePool,
+  addDispatchBatch,
+  getDispatchBatchesForOrder,
+  getUnassignedOrderProducts,
+  markBatchInTransit,
   type WorkflowLifecycleStatus,
   type WorkflowOrderLive,
   type DriverRecord,
   type VehicleRecord,
+  type DispatchBatch,
+  type DispatchBatchProduct,
 } from "../../../shared/lib/demo-store";
 
 // Seed localStorage from static mock data on first load
@@ -48,7 +54,8 @@ const WORKFLOW_STEPS: WorkflowLifecycleStatus[] = [
   "Order Placed", "Under Review", "Approved", "Added To Production",
   "Production Started", "Production Completed", "Ready For Dispatch",
   "Morning Dispatch", "Evening Dispatch", "In Transit", "Delivered",
-  "Invoice Generated", "Payment Pending", "Payment Completed", "Order Closed",
+  "Partially Delivered", "Awaiting Invoice", "Invoice Generated",
+  "Payment Pending", "Payment Completed", "Order Closed",
 ];
 
 // Map WorkflowLifecycleStatus → next allowed status (for non-approve/reject advance)
@@ -58,20 +65,17 @@ const NEXT_STATUS: Partial<Record<WorkflowLifecycleStatus, WorkflowLifecycleStat
   "Added To Production": "Production Started",
   "Production Started":  "Production Completed",
   "Production Completed":"Ready For Dispatch",
-  "Ready For Dispatch":  "Morning Dispatch",
-  "Morning Dispatch":    "In Transit",
-  "Evening Dispatch":    "In Transit",
-  "In Transit":          "Delivered",
-  // "Delivered" → auto-advances to "Invoice Generated" via Delivery Tracking confirmDelivery()
-  // "Invoice Generated" → "Payment Pending" via Collections page
+  // "Ready For Dispatch" → handled via multi-batch dispatch modal
+  // "Delivered" → "Awaiting Invoice" via Delivery Tracking batch confirmation
+  // "Awaiting Invoice" → "Invoice Generated" → "Payment Pending" via Invoice Generation page
   // "Payment Pending" → "Payment Completed" → auto "Order Closed" via Collections page
 };
 
 // Statuses that show Approve / Reject instead of (or alongside) Advance
 const VERIFICATION_STATUSES: WorkflowLifecycleStatus[] = ["Order Placed", "Under Review"];
 
-// Dispatch options for "Ready For Dispatch" → choose slot
-const DISPATCH_SLOTS: WorkflowLifecycleStatus[] = ["Morning Dispatch", "Evening Dispatch"];
+// Dispatch slot options
+const DISPATCH_SLOT_OPTIONS: Array<"Morning" | "Evening"> = ["Morning", "Evening"];
 
 function stepIndex(s: WorkflowLifecycleStatus) { return WORKFLOW_STEPS.indexOf(s); }
 
@@ -81,7 +85,9 @@ function statusColors(s: WorkflowLifecycleStatus) {
   if (s === "Payment Completed")    return { card: "border-emerald-200 bg-emerald-50/40", badge: "bg-emerald-100 text-emerald-700", dot: "bg-emerald-600" };
   if (s === "Payment Pending")      return { card: "border-orange-200 bg-orange-50/30",   badge: "bg-orange-100 text-orange-700",   dot: "bg-orange-500" };
   if (s === "Invoice Generated")    return { card: "border-violet-200 bg-violet-50/30",   badge: "bg-violet-100 text-violet-700",   dot: "bg-violet-500" };
+  if (s === "Awaiting Invoice")     return { card: "border-orange-200 bg-orange-50/30",   badge: "bg-orange-100 text-orange-700",   dot: "bg-orange-500" };
   if (s === "Delivered")            return { card: "border-teal-200 bg-teal-50/30",       badge: "bg-teal-100 text-teal-700",       dot: "bg-teal-500" };
+  if (s === "Partially Delivered")  return { card: "border-amber-200 bg-amber-50/30",     badge: "bg-amber-100 text-amber-700",     dot: "bg-amber-500" };
   if (s === "In Transit")           return { card: "border-sky-200 bg-sky-50/30",         badge: "bg-sky-100 text-sky-700",         dot: "bg-sky-500" };
   if (s === "Evening Dispatch")     return { card: "border-indigo-200 bg-indigo-50/30",   badge: "bg-indigo-100 text-indigo-700",   dot: "bg-indigo-500" };
   if (s === "Morning Dispatch")     return { card: "border-amber-200 bg-amber-50/30",     badge: "bg-amber-100 text-amber-700",     dot: "bg-amber-500" };
@@ -107,10 +113,6 @@ function getActionLabel(status: WorkflowLifecycleStatus): string {
     "Added To Production":  "Start Production",
     "Production Started":   "Mark Production Completed",
     "Production Completed": "Mark Ready For Dispatch",
-    "Ready For Dispatch":   "Dispatch",
-    "Morning Dispatch":     "Mark In Transit",
-    "Evening Dispatch":     "Mark In Transit",
-    "In Transit":           "Mark Delivered",
   };
   return map[status] ?? "";
 }
@@ -145,31 +147,29 @@ function WorkflowTimeline({ currentStatus }: { currentStatus: WorkflowLifecycleS
 export function OrdersWorkflowPage() {
   const [orders, setOrders] = useState<WorkflowOrderLive[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"request" | "approval">("request");
+  const [activeTab, setActiveTab] = useState<"request" | "approval" | "batches">("request");
   const [statusFilter, setStatusFilter] = useState<"All" | WorkflowLifecycleStatus>("All");
-  const [showDispatchSlot, setShowDispatchSlot] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  // Driver/vehicle assignment modal
-  const [dispatchModal, setDispatchModal] = useState<{ slot: "Morning" | "Evening" } | null>(null);
+
+  // Batch dispatch modal state
+  const [batchModal, setBatchModal] = useState<boolean>(false);
+  const [batchSlot, setBatchSlot] = useState<"Morning" | "Evening">("Morning");
   const [selectedDriver, setSelectedDriver] = useState<string>("");
   const [selectedVehicle, setSelectedVehicle] = useState<string>("");
   const [drivers, setDrivers] = useState<DriverRecord[]>([]);
   const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
+  // Product selection for the batch
+  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
+
+  // Dispatch batches for selected order
+  const [batches, setBatches] = useState<DispatchBatch[]>([]);
 
   const loadOrders = useCallback(() => {
-    // Get live orders from localStorage (newly submitted branch orders land here)
     const live = getWorkflowOrders();
-
-    // Merge: live orders take precedence; mock orders fill in anything not already present.
-    // This ensures newly submitted orders appear at the top without duplicating mock data.
     const mockIds = new Set(STATIC_SEED.map(o => o.id));
     const liveIds = new Set(live.map(o => o.id));
-
-    // Live orders that are NOT in the static seed (i.e. newly submitted) go first
     const newLiveOrders = live.filter(o => !mockIds.has(o.id));
-    // Mock orders updated with any live status changes, preserving mock order for the rest
     const mergedMock = STATIC_SEED.map(o => liveIds.has(o.id) ? live.find(l => l.id === o.id)! : o);
-
     const merged = [...newLiveOrders, ...mergedMock];
     setOrders(merged);
     setSelectedId(prev => prev || merged[0]?.id || "");
@@ -191,6 +191,22 @@ export function OrdersWorkflowPage() {
   const counts: Record<string, number> = {};
   orders.forEach(o => { counts[o.status] = (counts[o.status] ?? 0) + 1; });
 
+  // Load batches for selected order
+  useEffect(() => {
+    if (selected) {
+      setBatches(getDispatchBatchesForOrder(selected.id));
+    }
+  }, [selected, orders]);
+
+  // Also refresh batches on storage events
+  const loadBatches = useCallback(() => {
+    if (selected) setBatches(getDispatchBatchesForOrder(selected.id));
+  }, [selected]);
+  useEffect(() => {
+    window.addEventListener("storage", loadBatches);
+    return () => window.removeEventListener("storage", loadBatches);
+  }, [loadBatches]);
+
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
@@ -210,40 +226,64 @@ export function OrdersWorkflowPage() {
     loadOrders();
   }
 
-  function handleAdvance(slot?: WorkflowLifecycleStatus) {
+  function handleAdvance() {
     if (!selected) return;
-    const current = selected.status;
-    let next: WorkflowLifecycleStatus | undefined;
-
-    if (current === "Ready For Dispatch" && slot) {
-      // Show driver/vehicle assignment modal
-      const slotName: "Morning" | "Evening" = slot === "Morning Dispatch" ? "Morning" : "Evening";
-      setDrivers(getDriverPool().filter(d => d.status === "Available"));
-      setVehicles(getVehiclePool().filter(v => v.status === "Available"));
-      setSelectedDriver("");
-      setSelectedVehicle("");
-      setDispatchModal({ slot: slotName });
-      setShowDispatchSlot(false);
-      return;
-    } else {
-      next = NEXT_STATUS[current];
-    }
-
+    const next = NEXT_STATUS[selected.status];
     if (!next) return;
     updateWorkflowOrderStatus(selected.id, next);
     showToast(`${selected.id} → ${next}`);
     loadOrders();
   }
 
-  function handleConfirmDispatch() {
-    if (!selected || !dispatchModal || !selectedDriver || !selectedVehicle) return;
-    const slot = dispatchModal.slot;
-    assignDispatch(selected.id, selectedDriver, selectedVehicle, slot);
-    const next: WorkflowLifecycleStatus = slot === "Morning" ? "Morning Dispatch" : "Evening Dispatch";
-    updateWorkflowOrderStatus(selected.id, next);
-    showToast(`${selected.id} → ${next} (Driver & Vehicle assigned)`);
-    setDispatchModal(null);
+  function openBatchModal() {
+    if (!selected) return;
+    setDrivers(getDriverPool().filter(d => d.status === "Available"));
+    setVehicles(getVehiclePool().filter(v => v.status === "Available"));
+    setSelectedDriver("");
+    setSelectedVehicle("");
+    setBatchSlot("Morning");
+    // Only pre-select products NOT already assigned to another batch
+    const unassigned = getUnassignedOrderProducts(selected.id, selected.items);
+    setSelectedProducts(new Set(unassigned.map(i => i.product)));
+    setBatchModal(true);
+  }
+
+  function handleCreateBatch() {
+    if (!selected || !selectedDriver || !selectedVehicle || selectedProducts.size === 0) return;
+    const products: DispatchBatchProduct[] = selected.items
+      .filter(i => selectedProducts.has(i.product))
+      .map(i => ({
+        product: i.product,
+        unit: i.unit,
+        qty: i.approvedQty > 0 ? i.approvedQty : i.orderedQty,
+      }));
+    const batch = addDispatchBatch(selected.id, batchSlot, selectedDriver, selectedVehicle, products);
+    if (batch) {
+      showToast(`Batch ${batch.batchNumber} (${batchSlot}) created for ${selected.id}`);
+      setBatchModal(false);
+      setBatches(getDispatchBatchesForOrder(selected.id));
+      setActiveTab("batches");
+      loadOrders();
+    }
+  }
+
+  function handleAdvanceBatch(batchId: string, currentStatus: DispatchBatch["status"]) {
+    // Batches can only advance to "In Transit" from here.
+    // "Delivered" is set exclusively via the Delivery Tracking confirm-delivery workflow.
+    if (currentStatus !== "Scheduled") return;
+    // markBatchInTransit updates the batch AND derives the order status — no direct order mutation.
+    markBatchInTransit(batchId);
+    showToast(`Batch → In Transit`);
+    setBatches(getDispatchBatchesForOrder(selected!.id));
     loadOrders();
+  }
+
+  function handleResetPool() {
+    resetDriverVehiclePool();
+    setDrivers(getDriverPool().filter(d => d.status === "Available"));
+    setVehicles(getVehiclePool().filter(v => v.status === "Available"));
+    setSelectedDriver("");
+    setSelectedVehicle("");
   }
 
   if (!selected) return null;
@@ -284,7 +324,8 @@ export function OrdersWorkflowPage() {
           { label: "Evening Dispatch",     color: "text-indigo-700",  bg: "bg-indigo-50" },
           { label: "In Transit",           color: "text-sky-700",     bg: "bg-sky-50" },
           { label: "Delivered",            color: "text-teal-700",    bg: "bg-teal-50" },
-          { label: "Invoice Generated",    color: "text-violet-700",  bg: "bg-violet-50" },
+          { label: "Partially Delivered", color: "text-amber-700",   bg: "bg-amber-50" },
+          { label: "Invoice Generated",   color: "text-violet-700",  bg: "bg-violet-50" },
           { label: "Payment Pending",      color: "text-orange-700",  bg: "bg-orange-50" },
           { label: "Payment Completed",    color: "text-emerald-700", bg: "bg-emerald-50" },
           { label: "Order Closed",         color: "text-slate-600",   bg: "bg-slate-100" },
@@ -313,7 +354,7 @@ export function OrdersWorkflowPage() {
             const colors = statusColors(order.status);
             const isSelected = order.id === selectedId;
             return (
-              <button key={order.id} onClick={() => { setSelectedId(order.id); setActiveTab("request"); setShowDispatchSlot(false); }}
+              <button key={order.id} onClick={() => { setSelectedId(order.id); setActiveTab("request"); }}
                 className={`w-full rounded-xl border-2 p-4 text-left transition-all ${isSelected ? "border-[#0B2C66] shadow-md" : `border ${colors.card}`}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -380,31 +421,19 @@ export function OrdersWorkflowPage() {
               )}
               {canAdvance && selected.status !== "Order Closed" && (
                 <div className="relative">
-                  {isReadyForDispatch && !showDispatchSlot ? (
-                    <button onClick={() => setShowDispatchSlot(true)}
-                      className="flex items-center gap-2 rounded-lg bg-[#0B2C66] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0a2559] transition-colors">
-                      <ChevronRight className="h-4 w-4" />
-                      Dispatch
-                      <ChevronDown className="h-3 w-3" />
-                    </button>
-                  ) : isReadyForDispatch && showDispatchSlot ? (
-                    <div className="flex gap-2">
-                      {DISPATCH_SLOTS.map(slot => (
-                        <button key={slot} onClick={() => handleAdvance(slot)}
-                          className="rounded-lg bg-[#0B2C66] px-3 py-2 text-xs font-semibold text-white hover:bg-[#0a2559] transition-colors">
-                          {slot}
-                        </button>
-                      ))}
-                      <button onClick={() => setShowDispatchSlot(false)} className="rounded-lg border border-slate-200 px-2 py-2 text-xs text-slate-500 hover:bg-slate-50">✕</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => handleAdvance()}
-                      className="flex items-center gap-2 rounded-lg bg-[#0B2C66] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0a2559] transition-colors">
-                      <ChevronRight className="h-4 w-4" />
-                      {actionLabel}
-                    </button>
-                  )}
+                  <button onClick={handleAdvance}
+                    className="flex items-center gap-2 rounded-lg bg-[#0B2C66] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0a2559] transition-colors">
+                    <ChevronRight className="h-4 w-4" />
+                    {actionLabel}
+                  </button>
                 </div>
+              )}
+              {isReadyForDispatch && (
+                <button onClick={openBatchModal}
+                  className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors">
+                  <Plus className="h-4 w-4" />
+                  Add Dispatch Batch
+                </button>
               )}
             </div>
             <div className="mt-4">
@@ -414,10 +443,10 @@ export function OrdersWorkflowPage() {
 
           {/* Tabs */}
           <div className="flex border-b border-slate-100">
-            {(["request", "approval"] as const).map(tab => (
+            {(["request", "approval", "batches"] as const).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                 className={`flex-1 py-3 text-sm font-semibold capitalize transition-colors ${activeTab === tab ? "border-b-2 border-[#0B2C66] text-[#0B2C66]" : "text-slate-500 hover:text-slate-700"}`}>
-                {tab === "request" ? "Order Request" : "Approval"}
+                {tab === "request" ? "Order Request" : tab === "approval" ? "Approval" : `Dispatch Batches${batches.length > 0 ? ` (${batches.length})` : ""}`}
               </button>
             ))}
           </div>
@@ -453,54 +482,247 @@ export function OrdersWorkflowPage() {
 
             {activeTab === "approval" && (
               <div>
-                <div className="mb-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                  <BarChart3 className="h-4 w-4 text-indigo-500" />
-                  <span>Warehouse reviews available stock and approves/rejects quantities before adding to production.</span>
-                </div>
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3">Product</th>
-                      <th className="px-4 py-3 text-right">Qty</th>
-                      <th className="px-4 py-3">Unit</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {selected.items.map(item => (
-                      <tr key={item.product}>
-                        <td className="px-4 py-3 font-medium text-slate-800">{item.product}</td>
-                        <td className="px-4 py-3 text-right text-slate-600">{item.orderedQty}</td>
-                        <td className="px-4 py-3 text-slate-500">{item.unit}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                {/* Order Placed — waiting for review to begin */}
+                {selected.status === "Order Placed" && (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <Clock className="mb-3 h-10 w-10 text-slate-300" />
+                    <p className="text-sm font-semibold text-slate-600">Waiting for warehouse review.</p>
+                    <p className="mt-1 text-xs text-slate-400">Move the order to "Under Review" to begin the approval process.</p>
+                  </div>
+                )}
+
+                {/* Under Review — show product list for review, no approved products yet */}
+                {selected.status === "Under Review" && (
+                  <div>
+                    <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                      <BarChart3 className="h-4 w-4 text-amber-500" />
+                      <span>Review the requested products and quantities, then approve or reject the order using the buttons above.</span>
+                    </div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Products Under Review</p>
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-4 py-3">Product</th>
+                          <th className="px-4 py-3 text-right">Ordered Qty</th>
+                          <th className="px-4 py-3">Unit</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {selected.items.map(item => (
+                          <tr key={item.product}>
+                            <td className="px-4 py-3 font-medium text-slate-800">{item.product}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-slate-800">{item.orderedQty}</td>
+                            <td className="px-4 py-3 text-slate-500">{item.unit}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="mt-4 text-center text-xs text-slate-400">Products will appear here after approval.</p>
+                  </div>
+                )}
+
+                {/* Rejected — show rejection state, no approved products */}
+                {selected.status === "Rejected" && (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <AlertTriangle className="mb-3 h-10 w-10 text-red-300" />
+                    <p className="text-sm font-semibold text-red-600">Order Rejected</p>
+                    <p className="mt-1 text-xs text-slate-400">This order was rejected and will not proceed to production.</p>
+                  </div>
+                )}
+
+                {/* Approved or beyond — show approved products and enable Add to Production */}
+                {selected.status !== "Order Placed" && selected.status !== "Under Review" && selected.status !== "Rejected" && (
+                  <div>
+                    <div className="mb-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                      <span>Order approved. Products are confirmed and ready for production.</span>
+                    </div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Approved Products</p>
+                    <ul className="space-y-1">
+                      {selected.items.map(item => (
+                        <li key={item.product} className="flex items-center gap-2 rounded-lg bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-800">
+                          <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-500" />
+                          {item.product}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === "batches" && (
+              <div className="space-y-4">
+                {batches.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 text-slate-400">
+                    <Package className="mb-2 h-8 w-8" />
+                    <p className="text-sm text-slate-500">No dispatch batches created yet.</p>
+                    {isReadyForDispatch && (
+                      <button onClick={openBatchModal}
+                        className="mt-3 flex items-center gap-1 rounded-lg bg-[#0B2C66] px-4 py-2 text-xs font-semibold text-white hover:bg-[#0a2559] transition-colors">
+                        <Plus className="h-3.5 w-3.5" />Add First Batch
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  batches.map(batch => {
+                    const batchStatusColor =
+                      batch.status === "Delivered" ? "bg-emerald-100 text-emerald-700"
+                      : batch.status === "In Transit" ? "bg-sky-100 text-sky-700"
+                      : "bg-amber-100 text-amber-700";
+                    return (
+                      <div key={batch.batchId} className="rounded-xl border border-slate-200 p-4 space-y-3">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-800">Batch {batch.batchNumber}</span>
+                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${batch.slot === "Morning" ? "bg-amber-100 text-amber-700" : "bg-indigo-100 text-indigo-700"}`}>
+                              {batch.slot} Dispatch
+                            </span>
+                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${batchStatusColor}`}>
+                              {batch.status}
+                            </span>
+                          </div>
+                          {batch.status === "Scheduled" && (
+                            <button
+                              onClick={() => handleAdvanceBatch(batch.batchId, batch.status)}
+                              className="rounded-lg bg-[#0B2C66] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0a2559] transition-colors">
+                              Mark In Transit
+                            </button>
+                          )}
+                          {batch.status === "In Transit" && (
+                            <span className="rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-semibold text-sky-700">
+                              Awaiting Delivery Confirmation
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 text-xs">
+                          <div className="rounded-lg bg-slate-50 px-3 py-2">
+                            <p className="text-[10px] text-slate-400 uppercase">Driver</p>
+                            <p className="font-semibold text-slate-800">{batch.driverName}</p>
+                          </div>
+                          <div className="rounded-lg bg-slate-50 px-3 py-2">
+                            <p className="text-[10px] text-slate-400 uppercase">Vehicle</p>
+                            <p className="font-semibold text-slate-800">{batch.vehicleNumber}</p>
+                          </div>
+                          <div className="rounded-lg bg-slate-50 px-3 py-2">
+                            <p className="text-[10px] text-slate-400 uppercase">Dispatch Time</p>
+                            <p className="font-semibold text-slate-800">{batch.dispatchTime}</p>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="mb-1.5 text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Products in this batch</p>
+                          <div className="space-y-1">
+                            {batch.products.map(p => (
+                              <div key={p.product} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-1.5 text-sm">
+                                <span className="text-slate-800">{p.product}</span>
+                                <span className="text-xs text-slate-500">{p.qty} {p.unit}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                {isReadyForDispatch && batches.length > 0 && (() => {
+                  const unassigned = getUnassignedOrderProducts(selected!.id, selected!.items);
+                  if (unassigned.length === 0) return null;
+                  return (
+                    <button onClick={openBatchModal}
+                      className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-slate-300 py-3 text-sm font-semibold text-slate-500 hover:border-[#0B2C66] hover:text-[#0B2C66] transition-colors">
+                      <Plus className="h-4 w-4" />Add Another Batch
+                    </button>
+                  );
+                })()}
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Dispatch Assignment Modal */}
-      {dispatchModal && (
+      {/* Create Dispatch Batch Modal */}
+      {batchModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-slate-800">Assign Dispatch</h3>
-                <p className="text-xs text-slate-500 mt-0.5">{dispatchModal.slot} Dispatch — Order {selected?.id}</p>
+                <h3 className="text-lg font-semibold text-slate-800">Create Dispatch Batch</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Order {selected?.id} — Batch {batches.length + 1}</p>
               </div>
-              <button onClick={() => setDispatchModal(null)} className="text-xl leading-none text-slate-400 hover:text-slate-600">✕</button>
+              <button onClick={() => setBatchModal(false)} className="text-xl leading-none text-slate-400 hover:text-slate-600">✕</button>
             </div>
 
             <div className="space-y-4">
+              {/* Slot selection */}
+              <div>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Dispatch Slot</label>
+                <div className="flex gap-2">
+                  {DISPATCH_SLOT_OPTIONS.map(slot => (
+                    <button key={slot} onClick={() => setBatchSlot(slot)}
+                      className={`flex-1 rounded-lg border py-2.5 text-sm font-semibold transition-colors ${batchSlot === slot ? "border-[#0B2C66] bg-[#EEF4FF] text-[#0B2C66]" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+                      {slot} Dispatch
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Product selection — only unassigned products shown */}
+              <div>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Products in this batch <span className="text-red-500">*</span>
+                </label>
+                {(() => {
+                  const unassigned = getUnassignedOrderProducts(selected!.id, selected!.items);
+                  const assigned = selected!.items.filter(i => !unassigned.find(u => u.product === i.product));
+                  return (
+                    <div className="space-y-1.5">
+                      {unassigned.map(item => (
+                        <button key={item.product}
+                          onClick={() => {
+                            setSelectedProducts(prev => {
+                              const next = new Set(prev);
+                              if (next.has(item.product)) next.delete(item.product);
+                              else next.add(item.product);
+                              return next;
+                            });
+                          }}
+                          className={`w-full flex items-center justify-between rounded-lg border px-4 py-2.5 text-sm transition-colors ${selectedProducts.has(item.product) ? "border-[#0B2C66] bg-[#EEF4FF]" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
+                          <span className="font-medium text-slate-800">{item.product}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-400">{item.approvedQty > 0 ? item.approvedQty : item.orderedQty} {item.unit}</span>
+                            <div className={`h-4 w-4 rounded border-2 flex items-center justify-center ${selectedProducts.has(item.product) ? "border-[#0B2C66] bg-[#0B2C66]" : "border-slate-300"}`}>
+                              {selectedProducts.has(item.product) && <CheckCircle2 className="h-3 w-3 text-white" />}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                      {assigned.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Already in another batch</p>
+                          {assigned.map(item => (
+                            <div key={item.product}
+                              className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-4 py-2.5 text-sm opacity-50 cursor-not-allowed">
+                              <span className="font-medium text-slate-500">{item.product}</span>
+                              <span className="text-xs text-slate-400">Assigned</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {unassigned.length === 0 && (
+                        <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">All products are already assigned to batches.</p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
               {/* Driver Selection */}
               <div>
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Select Driver (Available)</label>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Select Driver</label>
                 {drivers.length === 0 ? (
                   <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">No available drivers right now.</p>
                 ) : (
-                  <div className="space-y-2 max-h-44 overflow-y-auto">
+                  <div className="space-y-2 max-h-36 overflow-y-auto">
                     {drivers.map(d => (
                       <button key={d.id} onClick={() => setSelectedDriver(d.id)}
                         className={`w-full flex items-center justify-between rounded-lg border px-4 py-2.5 text-sm transition-colors ${selectedDriver === d.id ? "border-[#0B2C66] bg-[#EEF4FF]" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
@@ -517,11 +739,11 @@ export function OrdersWorkflowPage() {
 
               {/* Vehicle Selection */}
               <div>
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Select Vehicle (Available)</label>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Select Vehicle</label>
                 {vehicles.length === 0 ? (
                   <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">No available vehicles right now.</p>
                 ) : (
-                  <div className="space-y-2 max-h-44 overflow-y-auto">
+                  <div className="space-y-2 max-h-36 overflow-y-auto">
                     {vehicles.map(v => (
                       <button key={v.id} onClick={() => setSelectedVehicle(v.id)}
                         className={`w-full flex items-center justify-between rounded-lg border px-4 py-2.5 text-sm transition-colors ${selectedVehicle === v.id ? "border-[#0B2C66] bg-[#EEF4FF]" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
@@ -535,18 +757,28 @@ export function OrdersWorkflowPage() {
                   </div>
                 )}
               </div>
+
+              {(drivers.length === 0 || vehicles.length === 0) && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-xs text-slate-500 mb-2">Reset the pool to make drivers and vehicles available again.</p>
+                  <button onClick={handleResetPool}
+                    className="rounded-md bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition-colors">
+                    Reset Driver &amp; Vehicle Pool
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="mt-5 flex gap-3">
-              <button onClick={() => setDispatchModal(null)}
+              <button onClick={() => setBatchModal(false)}
                 className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">
                 Cancel
               </button>
               <button
-                onClick={handleConfirmDispatch}
-                disabled={!selectedDriver || !selectedVehicle}
+                onClick={handleCreateBatch}
+                disabled={!selectedDriver || !selectedVehicle || selectedProducts.size === 0}
                 className="flex-1 rounded-lg bg-[#0B2C66] py-2.5 text-sm font-semibold text-white hover:bg-[#092757] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                Confirm Dispatch
+                Create Batch
               </button>
             </div>
           </div>

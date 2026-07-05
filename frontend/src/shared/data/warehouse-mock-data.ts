@@ -1135,7 +1135,7 @@ export const WAREHOUSE_SIDEBAR_LABELS = [
   "Invoice Generation",
   "Dispatch Tracking",
   "Production Planning",
-  "Delivery Tracking",
+  "Delivery Confirmation",
   "Collections",
   "Advance Orders",
   "Tray Management",

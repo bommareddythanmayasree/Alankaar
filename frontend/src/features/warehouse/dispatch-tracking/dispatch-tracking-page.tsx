@@ -1,131 +1,289 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
-import { Truck, Package, CheckCircle2, Clock, ArrowRight, Sun, Moon } from "lucide-react";
+import { useMemo, useEffect, useState, useCallback } from "react";
+import {
+  Truck, Package, CheckCircle2, Clock, Sun, Moon,
+  MapPin, User, Hash, Calendar, ArrowRight, Navigation,
+  RotateCcw, PlayCircle,
+} from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
-import { WORKFLOW_ORDERS } from "../../../shared/data/workflow-mock-data";
 import {
   getWorkflowOrders,
-  type WorkflowOrderLive,
+  getDispatchBatches,
+  getDispatchAssignments,
   type WorkflowLifecycleStatus,
+  type DispatchBatch,
 } from "../../../shared/lib/demo-store";
 
-// Static mock dispatch orders derived from WORKFLOW_ORDERS
-const MOCK_DISPATCH_ORDERS: WorkflowOrderLive[] = WORKFLOW_ORDERS
-  .filter(o =>
-    ["Ready For Dispatch", "Morning Dispatch", "Evening Dispatch", "In Transit", "Delivered"].includes(o.status)
-  )
-  .map(o => ({
-    id: o.id,
-    branch: o.branch,
-    date: o.date,
-    time: o.time,
-    priority: o.priority,
-    value: o.value,
-    status: o.status as WorkflowLifecycleStatus,
-    items: o.items.map(i => ({
-      product: i.product,
-      orderedQty: i.orderedQty,
-      approvedQty: i.approvedQty,
-      rejectedQty: i.rejectedQty,
-      unit: i.unit,
-    })),
-  }));
+// ─── Status helpers ───────────────────────────────────────────────────────────
 
-type DispatchStatus = "Ready For Dispatch" | "Morning Dispatch" | "Evening Dispatch" | "In Transit" | "Delivered";
-const DISPATCH_STATUSES: WorkflowLifecycleStatus[] = ["Ready For Dispatch", "Morning Dispatch", "Evening Dispatch", "In Transit", "Delivered"];
-const LIFECYCLE: DispatchStatus[] = ["Ready For Dispatch", "Morning Dispatch", "Evening Dispatch", "In Transit", "Delivered"];
+const DISPATCH_STATUSES: WorkflowLifecycleStatus[] = [
+  "Ready For Dispatch",
+  "Morning Dispatch",
+  "Evening Dispatch",
+  "In Transit",
+  "Delivered",
+];
 
-type FilterOption = "All" | "Morning Dispatch" | "Evening Dispatch" | "In Transit" | "Delivered";
-
-function statusClass(status: WorkflowLifecycleStatus) {
+function statusBadge(status: string) {
   if (status === "Ready For Dispatch") return "bg-amber-100 text-amber-700";
-  if (status === "Morning Dispatch")   return "bg-amber-100 text-amber-700";
+  if (status === "Morning Dispatch")   return "bg-orange-100 text-orange-700";
   if (status === "Evening Dispatch")   return "bg-indigo-100 text-indigo-700";
   if (status === "In Transit")         return "bg-sky-100 text-sky-700";
   if (status === "Delivered")          return "bg-emerald-100 text-emerald-700";
   return "bg-slate-100 text-slate-600";
 }
 
-function statusIcon(status: WorkflowLifecycleStatus) {
-  if (status === "Delivered")        return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
-  if (status === "In Transit")       return <Truck className="h-4 w-4 text-sky-500" />;
-  if (status === "Morning Dispatch" || status === "Evening Dispatch") return <Package className="h-4 w-4 text-indigo-500" />;
-  return <Clock className="h-4 w-4 text-amber-500" />;
+function statusDot(status: string) {
+  if (status === "In Transit") return "bg-sky-500";
+  if (status === "Delivered")  return "bg-emerald-500";
+  return "bg-amber-400";
 }
 
-export function DispatchTrackingPage() {
-  const [orders, setOrders] = useState<WorkflowOrderLive[]>([]);
-  const [selectedOrderId, setSelectedOrderId] = useState<string>("");
-  const [filter, setFilter] = useState<FilterOption>("All");
+// ─── Timeline event derivation ────────────────────────────────────────────────
 
-  const loadOrders = useCallback(() => {
-    const liveOrders = getWorkflowOrders().filter(o => DISPATCH_STATUSES.includes(o.status as WorkflowLifecycleStatus));
-    // Merge: live orders take precedence; mock orders fill in any not already present
-    const liveIds = new Set(liveOrders.map(o => o.id));
-    const merged = [
-      ...liveOrders,
-      ...MOCK_DISPATCH_ORDERS.filter(o => !liveIds.has(o.id)),
-    ];
-    setOrders(merged);
-    setSelectedOrderId(prev => {
-      if (!prev && merged.length > 0) return merged[0].id;
-      if (prev && !merged.find(o => o.id === prev) && merged.length > 0) return merged[0].id;
-      return prev;
+type TimelineEvent = {
+  time: string;
+  label: string;
+  vehicle: string;
+  driver: string;
+  branch: string;
+  description: string;
+  batchId?: string;
+  eventType: "dispatch_started" | "vehicle_left" | "reached_branch" | "batch_delivered" | "vehicle_returned";
+};
+
+type WorkflowOrder = { id: string; branch: string };
+
+function deriveTimeline(batches: DispatchBatch[], orders: WorkflowOrder[]): TimelineEvent[] {
+  const events: TimelineEvent[] = [];
+  const today = new Date().toDateString();
+
+  for (const b of batches) {
+    const created = new Date(b.createdAt);
+    if (created.toDateString() !== today) continue;
+
+    const slot = b.slot === "Morning" ? "Morning" : "Evening";
+    const order = orders.find(o => o.id === b.orderId);
+    const branch = order?.branch ?? "—";
+
+    events.push({
+      time: b.dispatchTime,
+      label: `${slot} Dispatch Started`,
+      vehicle: b.vehicleNumber,
+      driver: b.driverName,
+      branch,
+      description: `${slot} dispatch batch ${b.batchId} loaded and ready to depart.`,
+      batchId: b.batchId,
+      eventType: "dispatch_started",
     });
-  }, []);
+
+    if (b.status === "In Transit" || b.status === "Delivered") {
+      const left = new Date(created.getTime() + 15 * 60 * 1000);
+      events.push({
+        time: left.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        label: "Vehicle Left Warehouse",
+        vehicle: b.vehicleNumber,
+        driver: b.driverName,
+        branch,
+        description: `Vehicle departed warehouse en route to ${branch}.`,
+        batchId: b.batchId,
+        eventType: "vehicle_left",
+      });
+    }
+
+    if (b.status === "In Transit") {
+      const reached = new Date(created.getTime() + 60 * 60 * 1000);
+      events.push({
+        time: reached.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        label: "Reached Branch",
+        vehicle: b.vehicleNumber,
+        driver: b.driverName,
+        branch,
+        description: `Vehicle arrived at ${branch} for unloading.`,
+        batchId: b.batchId,
+        eventType: "reached_branch",
+      });
+    }
+
+    if (b.status === "Delivered" && b.deliveredAt) {
+      const del = new Date(b.deliveredAt);
+      // Reached branch ~30 min before delivery confirmation
+      const reached = new Date(del.getTime() - 30 * 60 * 1000);
+      events.push({
+        time: reached.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        label: "Reached Branch",
+        vehicle: b.vehicleNumber,
+        driver: b.driverName,
+        branch,
+        description: `Vehicle arrived at ${branch} for unloading.`,
+        batchId: b.batchId,
+        eventType: "reached_branch",
+      });
+      events.push({
+        time: del.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        label: "Batch Delivered",
+        vehicle: b.vehicleNumber,
+        driver: b.driverName,
+        branch,
+        description: `All items in batch ${b.batchId} handed over and confirmed at ${branch}.`,
+        batchId: b.batchId,
+        eventType: "batch_delivered",
+      });
+      const returned = new Date(del.getTime() + 35 * 60 * 1000);
+      events.push({
+        time: returned.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        label: "Vehicle Returned",
+        vehicle: b.vehicleNumber,
+        driver: b.driverName,
+        branch,
+        description: `${b.vehicleNumber} returned to warehouse after completing delivery.`,
+        batchId: b.batchId,
+        eventType: "vehicle_returned",
+      });
+    }
+  }
+
+  return events.sort((a, b) => a.time.localeCompare(b.time));
+}
+
+// ─── Timeline event icon/colour helpers ──────────────────────────────────────
+
+function timelineEventStyle(eventType: TimelineEvent["eventType"]) {
+  switch (eventType) {
+    case "dispatch_started":
+      return { dotClass: "bg-orange-100", iconEl: <PlayCircle className="h-3 w-3 text-orange-500" /> };
+    case "vehicle_left":
+      return { dotClass: "bg-sky-100", iconEl: <ArrowRight className="h-3 w-3 text-sky-500" /> };
+    case "reached_branch":
+      return { dotClass: "bg-violet-100", iconEl: <Navigation className="h-3 w-3 text-violet-500" /> };
+    case "batch_delivered":
+      return { dotClass: "bg-emerald-100", iconEl: <CheckCircle2 className="h-3 w-3 text-emerald-500" /> };
+    case "vehicle_returned":
+      return { dotClass: "bg-slate-100", iconEl: <RotateCcw className="h-3 w-3 text-slate-500" /> };
+  }
+}
+
+
+
+type VehicleCardData = {
+  vehicleNumber: string;
+  driverName: string;
+  branch: string;
+  batchId: string;
+  productCount: number;
+  dispatchTime: string;
+  status: string;
+  orderId: string;
+};
+
+export function DispatchTrackingPage() {
+  const [tick, setTick] = useState(0);
+
+  const refresh = useCallback(() => setTick(t => t + 1), []);
 
   useEffect(() => {
-    loadOrders();
-    window.addEventListener("storage", loadOrders);
-    window.addEventListener("focus", loadOrders);
+    window.addEventListener("storage", refresh);
+    window.addEventListener("focus", refresh);
     return () => {
-      window.removeEventListener("storage", loadOrders);
-      window.removeEventListener("focus", loadOrders);
+      window.removeEventListener("storage", refresh);
+      window.removeEventListener("focus", refresh);
     };
-  }, [loadOrders]);
+  }, [refresh]);
 
-  const selectedOrder = orders.find(o => o.id === selectedOrderId) ?? orders[0];
+  // All data derived fresh from store on each tick — no local copies
+  const { counts, vehicles, inTransitBatches, deliveredBatches, timeline } = useMemo(() => {
+    const orders = getWorkflowOrders();
+    const batches = getDispatchBatches();
+    const assignments = getDispatchAssignments();
 
-  const filteredOrders = useMemo(() => {
-    if (filter === "All")              return orders;
-    if (filter === "Morning Dispatch") return orders.filter(o => o.status === "Morning Dispatch");
-    if (filter === "Evening Dispatch") return orders.filter(o => o.status === "Evening Dispatch");
-    if (filter === "In Transit")       return orders.filter(o => o.status === "In Transit");
-    if (filter === "Delivered")        return orders.filter(o => o.status === "Delivered");
-    return orders;
-  }, [filter, orders]);
+    // KPI counts
+    const dispatchOrders = orders.filter(o => DISPATCH_STATUSES.includes(o.status as WorkflowLifecycleStatus));
+    const counts = {
+      readyForDispatch: dispatchOrders.filter(o => o.status === "Ready For Dispatch").length,
+      morning:          dispatchOrders.filter(o => o.status === "Morning Dispatch").length,
+      evening:          dispatchOrders.filter(o => o.status === "Evening Dispatch").length,
+      inTransit:        dispatchOrders.filter(o => o.status === "In Transit").length,
+      delivered:        dispatchOrders.filter(o => o.status === "Delivered" || o.status === "Awaiting Invoice").length,
+    };
 
-  const currentIdx = selectedOrder ? LIFECYCLE.indexOf(selectedOrder.status as DispatchStatus) : -1;
+    // Vehicle cards — one per batch that has an assignment
+    const vehicles: VehicleCardData[] = batches.map(b => {
+      const order = orders.find(o => o.id === b.orderId);
+      const assignment = assignments.find(a => a.orderId === b.orderId);
+      return {
+        vehicleNumber: b.vehicleNumber || assignment?.vehicleNumber || "—",
+        driverName:    b.driverName    || assignment?.driverName    || "—",
+        branch:        order?.branch   ?? "—",
+        batchId:       b.batchId,
+        productCount:  b.products.length,
+        dispatchTime:  b.dispatchTime,
+        status:        b.status === "Scheduled"
+          ? (order?.status ?? "Ready For Dispatch")
+          : b.status === "In Transit"
+          ? "In Transit"
+          : "Delivered",
+        orderId: b.orderId,
+      };
+    }).filter(v => v.vehicleNumber !== "—");
 
-  const counts = useMemo(() => ({
-    readyForDispatch: orders.filter(o => o.status === "Ready For Dispatch").length,
-    morning:          orders.filter(o => o.status === "Morning Dispatch").length,
-    evening:          orders.filter(o => o.status === "Evening Dispatch").length,
-    inTransit:        orders.filter(o => o.status === "In Transit").length,
-    delivered:        orders.filter(o => o.status === "Delivered").length,
-  }), [orders]);
+    // In-transit batches
+    const inTransitBatches = batches.filter(b => b.status === "In Transit").map(b => {
+      const order = orders.find(o => o.id === b.orderId);
+      const etaMs = new Date(b.createdAt).getTime() + 90 * 60 * 1000;
+      const etaDate = new Date(etaMs);
+      return {
+        batchId:     b.batchId,
+        orderId:     b.orderId,
+        driver:      b.driverName,
+        vehicle:     b.vehicleNumber,
+        branch:      order?.branch ?? "—",
+        eta:         etaDate.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        products:    b.products,
+      };
+    });
 
-  const FILTER_TABS: { label: FilterOption; value: number; bg: string; text: string; Icon: React.ElementType }[] = [
-    { label: "All",              value: orders.length,          bg: "bg-slate-100",   text: "text-slate-700",   Icon: Package },
-    { label: "Morning Dispatch", value: counts.morning,         bg: "bg-amber-50",    text: "text-amber-700",   Icon: Sun },
-    { label: "Evening Dispatch", value: counts.evening,         bg: "bg-indigo-50",   text: "text-indigo-700",  Icon: Moon },
-    { label: "In Transit",       value: counts.inTransit,       bg: "bg-sky-50",      text: "text-sky-700",     Icon: Truck },
-    { label: "Delivered",        value: counts.delivered,       bg: "bg-emerald-50",  text: "text-emerald-700", Icon: CheckCircle2 },
-  ];
+    // Delivered batches — today only
+    const todayStr = new Date().toDateString();
+    const deliveredBatches = batches
+      .filter(b => {
+        if (b.status !== "Delivered") return false;
+        const deliveredDate = b.deliveredAt ? new Date(b.deliveredAt).toDateString() : null;
+        const createdDate = new Date(b.createdAt).toDateString();
+        return (deliveredDate ?? createdDate) === todayStr;
+      })
+      .map(b => {
+        const order = orders.find(o => o.id === b.orderId);
+        return {
+          batchId:       b.batchId,
+          branch:        order?.branch ?? "—",
+          driver:        b.driverName,
+          deliveredTime: b.deliveredAt
+            ? new Date(b.deliveredAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
+            : "—",
+          status: "Delivered" as const,
+        };
+      });
+
+    const timeline = deriveTimeline(batches, orders);
+
+    return { counts, vehicles, inTransitBatches, deliveredBatches, timeline };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick]);
 
   return (
     <ErpLayout sidebarItems={buildSidebar(WAREHOUSE_NAV, [...WAREHOUSE_SIDEBAR_LABELS], "Dispatch Tracking")}>
-      <div className="mb-5">
+      {/* Header */}
+      <div className="mb-6">
         <h2 className="text-2xl font-semibold text-slate-800">Dispatch Tracking</h2>
-        <p className="mt-1 text-slate-500">Real-time tracking of dispatches — synced from Orders Workflow.</p>
+        <p className="mt-1 text-slate-500">Real-time logistics monitoring — synced live from Orders Workflow.</p>
       </div>
 
-      {/* Summary KPI cards */}
-      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5">
+      {/* KPI Cards */}
+      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-5">
         {[
           { label: "Ready For Dispatch", value: counts.readyForDispatch, bg: "bg-amber-50",   color: "text-amber-600",   Icon: Clock },
-          { label: "Morning Dispatch",   value: counts.morning,          bg: "bg-amber-50",   color: "text-amber-700",   Icon: Sun },
+          { label: "Morning Dispatch",   value: counts.morning,          bg: "bg-orange-50",  color: "text-orange-600",  Icon: Sun },
           { label: "Evening Dispatch",   value: counts.evening,          bg: "bg-indigo-50",  color: "text-indigo-600",  Icon: Moon },
           { label: "In Transit",         value: counts.inTransit,        bg: "bg-sky-50",     color: "text-sky-600",     Icon: Truck },
           { label: "Delivered",          value: counts.delivered,        bg: "bg-emerald-50", color: "text-emerald-600", Icon: CheckCircle2 },
@@ -140,125 +298,233 @@ export function DispatchTrackingPage() {
         ))}
       </div>
 
-      {orders.length === 0 ? (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm text-slate-500">
-          No orders currently in dispatch. Orders appear here when they reach Ready For Dispatch status in Orders Workflow.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-          {/* Timeline detail panel */}
-          <section className="rounded-xl border border-slate-200 bg-white p-5 xl:col-span-4">
-            <h3 className="mb-4 text-base font-semibold text-slate-800">Dispatch Timeline</h3>
-            <div className="mb-4">
-              <select value={selectedOrderId} onChange={e => setSelectedOrderId(e.target.value)}
-                className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#0A3A92]">
-                {orders.map(o => (
-                  <option key={o.id} value={o.id}>{o.id} — {o.branch}</option>
-                ))}
-              </select>
-            </div>
-
-            {selectedOrder && (
-              <>
-                <div className="mb-4 rounded-lg bg-slate-50 px-4 py-3 text-sm space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-semibold text-[#1B4DB1]">{selectedOrder.id}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusClass(selectedOrder.status)}`}>
-                      {selectedOrder.status}
-                    </span>
+      {/* Live Dispatch Vehicles */}
+      <section className="mb-6">
+        <h3 className="mb-3 text-base font-semibold text-slate-800">Live Dispatch Vehicles</h3>
+        {vehicles.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm text-slate-500">
+            No vehicles currently in dispatch. Vehicles appear here when orders reach Ready For Dispatch.
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {vehicles.map(v => (
+              <div key={`${v.batchId}-${v.orderId}`} className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={`h-2.5 w-2.5 rounded-full ${statusDot(v.status)}`} />
+                    <span className="font-mono text-sm font-semibold text-slate-800">{v.vehicleNumber}</span>
                   </div>
-                  <div className="border-t border-slate-200 pt-2 grid grid-cols-2 gap-y-1.5 text-slate-600">
-                    <span className="text-slate-500">Branch</span>
-                    <span className="font-medium text-right">{selectedOrder.branch}</span>
-                    <span className="text-slate-500">Priority</span>
-                    <span className="font-medium text-right">{selectedOrder.priority}</span>
-                    <span className="text-slate-500">Value</span>
-                    <span className="font-medium text-right">₹{selectedOrder.value.toLocaleString("en-IN")}</span>
-                    <span className="text-slate-500">Items</span>
-                    <span className="font-medium text-right">{selectedOrder.items.length} products</span>
+                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadge(v.status)}`}>
+                    {v.status}
+                  </span>
+                </div>
+                <div className="space-y-2 text-xs text-slate-600">
+                  <div className="flex items-center gap-2">
+                    <User className="h-3.5 w-3.5 text-slate-400" />
+                    <span>{v.driverName}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                    <span>{v.branch}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Hash className="h-3.5 w-3.5 text-slate-400" />
+                    <span className="font-mono">{v.batchId}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Package className="h-3.5 w-3.5 text-slate-400" />
+                    <span>{v.productCount} product{v.productCount !== 1 ? "s" : ""}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-3.5 w-3.5 text-slate-400" />
+                    <span>{v.dispatchTime}</span>
                   </div>
                 </div>
-                <div className="space-y-3">
-                  {LIFECYCLE.map((step, idx) => {
-                    const done      = idx <= currentIdx;
-                    const isCurrent = idx === currentIdx;
-                    return (
-                      <div key={step} className="flex items-center gap-3">
-                        {idx > 0 && <ArrowRight className="hidden h-3 w-3" />}
-                        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                          isCurrent ? "bg-[#0A3A92] text-white ring-2 ring-[#0A3A92]/20"
-                          : done     ? "bg-[#0A3A92] text-white"
-                          :            "bg-slate-100 text-slate-400"
-                        }`}>{idx + 1}</span>
-                        <div className="flex items-center gap-1.5">
-                          {statusIcon(step)}
-                          <span className={`text-sm ${done ? "font-semibold text-slate-800" : "text-slate-400"}`}>{step}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Today's Dispatch Timeline — full-width section */}
+      <section className="mb-6">
+        <div className="mb-3 flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-slate-400" />
+          <h3 className="text-base font-semibold text-slate-800">Today's Dispatch Timeline</h3>
+        </div>
+        {timeline.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm text-slate-500">
+            No dispatch activity yet today.
+          </div>
+        ) : (
+          <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <ol className="relative space-y-0 border-l-2 border-slate-200 pl-6">
+              {timeline.map((ev, i) => {
+                const { dotClass, iconEl } = timelineEventStyle(ev.eventType);
+                return (
+                  <li key={`${ev.batchId}-${i}`} className="relative pb-6 last:pb-0">
+                    {/* dot */}
+                    <span className={`absolute -left-[25px] top-1 flex h-5 w-5 items-center justify-center rounded-full ${dotClass}`}>
+                      {iconEl}
+                    </span>
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-6">
+                      {/* time */}
+                      <span className="w-20 shrink-0 font-mono text-xs font-semibold text-slate-500 pt-0.5">{ev.time}</span>
+                      {/* content */}
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-slate-800">{ev.label}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">{ev.description}</p>
+                        {/* meta row */}
+                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                          <span className="flex items-center gap-1">
+                            <Truck className="h-3.5 w-3.5 text-slate-400" />
+                            {ev.vehicle}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <User className="h-3.5 w-3.5 text-slate-400" />
+                            {ev.driver}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                            {ev.branch}
+                          </span>
+                          {ev.batchId && (
+                            <span className="flex items-center gap-1">
+                              <Hash className="h-3.5 w-3.5 text-slate-400" />
+                              <span className="font-mono">{ev.batchId}</span>
+                            </span>
+                          )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </section>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        )}
+      </section>
 
-          {/* Table */}
-          <section className="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-8">
-            <h3 className="mb-3 text-base font-semibold text-slate-800">Dispatch Orders</h3>
-            <div className="mb-4 flex flex-wrap gap-2">
-              {FILTER_TABS.map(tab => (
-                <button key={tab.label} onClick={() => setFilter(tab.label)}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors border
-                    ${filter === tab.label ? `${tab.bg} ${tab.text} border-current` : "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700"}`}>
-                  <tab.Icon className="h-3.5 w-3.5" />
-                  {tab.label}
-                  <span className={`ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${filter === tab.label ? "bg-white/60" : "bg-slate-100"}`}>
-                    {tab.value}
-                  </span>
-                </button>
-              ))}
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[600px] text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Order ID</th>
-                    <th className="px-4 py-3">Branch</th>
-                    <th className="px-4 py-3">Priority</th>
-                    <th className="px-4 py-3">Items</th>
-                    <th className="px-4 py-3">Value</th>
-                    <th className="px-4 py-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredOrders.map(order => (
-                    <tr key={order.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3">
-                        <button onClick={() => setSelectedOrderId(order.id)}
-                          className="font-mono text-xs font-semibold text-[#1B4DB1] hover:underline">
-                          {order.id}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">{order.branch}</td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs font-semibold ${order.priority === "Urgent" ? "text-red-600" : "text-slate-500"}`}>{order.priority}</span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">{order.items.length}</td>
-                      <td className="px-4 py-3 text-slate-700">₹{order.value.toLocaleString("en-IN")}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${statusClass(order.status)}`}>
-                          {statusIcon(order.status)}
-                          {order.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+      {/* Currently In Transit — full-width section */}
+      <section className="mb-6">
+        <div className="mb-3 flex items-center gap-2">
+          <Truck className="h-4 w-4 text-sky-500" />
+          <h3 className="text-base font-semibold text-slate-800">Currently In Transit</h3>
+          {inTransitBatches.length > 0 && (
+            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700">
+              {inTransitBatches.length}
+            </span>
+          )}
         </div>
-      )}
+        {inTransitBatches.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm text-slate-500">
+            No batches currently in transit.
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {inTransitBatches.map(b => (
+              <div key={b.batchId} className="rounded-xl border border-sky-200 bg-white p-4">
+                {/* Card header */}
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="font-mono text-sm font-semibold text-sky-700">{b.batchId}</span>
+                  <span className="rounded-full bg-sky-100 px-2.5 py-0.5 text-[11px] font-semibold text-sky-700">In Transit</span>
+                </div>
+                {/* Core fields */}
+                <div className="mb-3 space-y-1.5 text-xs text-slate-600">
+                  <div className="flex items-center gap-2">
+                    <Hash className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="text-slate-400 w-14 shrink-0">Order</span>
+                    <span className="font-mono font-medium truncate">{b.orderId}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <User className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="text-slate-400 w-14 shrink-0">Driver</span>
+                    <span className="truncate">{b.driver}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Truck className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="text-slate-400 w-14 shrink-0">Vehicle</span>
+                    <span className="font-mono truncate">{b.vehicle}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="text-slate-400 w-14 shrink-0">Branch</span>
+                    <span className="truncate">{b.branch}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="text-slate-400 w-14 shrink-0">ETA</span>
+                    <span className="font-semibold text-sky-700">{b.eta}</span>
+                  </div>
+                </div>
+                {/* Products list */}
+                <div className="border-t border-slate-100 pt-2">
+                  <div className="mb-1.5 flex items-center gap-1 text-xs font-medium text-slate-500">
+                    <Package className="h-3.5 w-3.5 text-slate-400" />
+                    Products ({b.products.length})
+                  </div>
+                  <ul className="space-y-0.5">
+                    {b.products.map((p, i) => (
+                      <li key={i} className="flex items-center justify-between text-xs text-slate-600">
+                        <span className="truncate">{p.product}</span>
+                        <span className="ml-2 shrink-0 font-mono text-slate-500">{p.qty} {p.unit}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Completed Deliveries Today */}
+      <section className="mb-6">
+        <div className="mb-3 flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          <h3 className="text-base font-semibold text-slate-800">Completed Deliveries Today</h3>
+          {deliveredBatches.length > 0 && (
+            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+              {deliveredBatches.length}
+            </span>
+          )}
+        </div>
+        {deliveredBatches.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm text-slate-500">
+            No deliveries completed yet today.
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {deliveredBatches.map(b => (
+              <div key={b.batchId} className="rounded-xl border border-emerald-200 bg-white p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="font-mono text-sm font-semibold text-emerald-700">{b.batchId}</span>
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                    {b.status}
+                  </span>
+                </div>
+                <div className="space-y-1.5 text-xs text-slate-600">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="text-slate-400 w-20 shrink-0">Branch</span>
+                    <span className="truncate">{b.branch}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <User className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="text-slate-400 w-20 shrink-0">Driver</span>
+                    <span className="truncate">{b.driver}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="text-slate-400 w-20 shrink-0">Delivered At</span>
+                    <span className="font-semibold text-emerald-700">{b.deliveredTime}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </ErpLayout>
   );
 }

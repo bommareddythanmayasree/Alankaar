@@ -57,6 +57,7 @@ export function ErpLayout({
     "Production Planning": "/warehouse/production-planning",
     "Multi-Stage Dispatch": "/warehouse/multi-stage-dispatch",
     "Delivery Tracking": "/warehouse/delivery-tracking",
+    "Delivery Confirmation": "/warehouse/delivery-confirmation",
     "End of Day Closure": "/warehouse/eod-closure",
     "Collections": "/warehouse/collections",
     "Advance Orders": "/warehouse/advance-orders",

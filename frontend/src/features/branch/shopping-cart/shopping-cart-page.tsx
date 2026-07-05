@@ -12,6 +12,7 @@ import { BRANCH_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { BRANCH_SIDEBAR_LABELS } from "../../../shared/data/branch-mock-data";
 import { useCart } from "../../../app/branch/branch-context";
 import { getProductUnit } from "../../../shared/utils/product-units";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 type Priority = "Normal" | "Urgent";
 
@@ -149,7 +150,7 @@ export function ShoppingCartPage() {
                 )}
                 <div className="border-t border-slate-100 pt-3 flex justify-between">
                   <span className="text-slate-500">Est. Order Value</span>
-                  <span className="text-lg font-bold text-[#0B2C66]">₹{estimatedValue.toLocaleString("en-IN")}</span>
+                  <span className="text-lg font-bold text-[#0B2C66]">{formatCurrency(estimatedValue)}</span>
                 </div>
               </div>
 

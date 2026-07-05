@@ -28,7 +28,9 @@ export function ProductApprovalRequestsPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [pendingCount, setPendingCount] = useState(0);
 
-  const { approveProductFromAdmin, rejectProductFromAdmin } = useWarehouseForBranch();
+  const warehouseCtx = useWarehouseForBranch();
+  const approveProductFromAdmin = warehouseCtx?.approveProductFromAdmin;
+  const rejectProductFromAdmin = warehouseCtx?.rejectProductFromAdmin;
 
   const reload = () => {
     const all = getPendingProducts();
@@ -44,7 +46,7 @@ export function ProductApprovalRequestsPage() {
   const handleApprove = (id: string) => {
     approveProduct(id);
     // Sync approval to warehouse context using the canonical product ID
-    approveProductFromAdmin(id);
+    approveProductFromAdmin?.(id);
     reload();
   };
 
@@ -52,7 +54,7 @@ export function ProductApprovalRequestsPage() {
     if (!rejectModal) return;
     rejectProduct(rejectModal.id, rejectReason || "No reason provided");
     // Sync rejection to warehouse context using the canonical product ID
-    rejectProductFromAdmin(rejectModal.id);
+    rejectProductFromAdmin?.(rejectModal.id);
     setRejectModal(null);
     setRejectReason("");
     reload();

@@ -2,6 +2,7 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, Res
 import { ErpLayout } from "../../shared/erp-layout";
 import { ADMIN_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { ADMIN_SIDEBAR_LABELS } from "../../../shared/data/admin-mock-data";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 // unit: "Kg" for sweets/mithai, "pcs" for bakery/snacks
 const fastMovingProducts = [
@@ -216,5 +217,5 @@ export function ProductAnalyticsPage() {
 }
 
 function formatInr(value: number) {
-  return `₹${new Intl.NumberFormat("en-IN").format(value)}`;
+  return formatCurrency(value);
 }

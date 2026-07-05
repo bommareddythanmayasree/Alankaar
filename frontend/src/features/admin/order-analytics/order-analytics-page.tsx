@@ -15,6 +15,7 @@ import {
 import { ErpLayout } from "../../shared/erp-layout";
 import { ADMIN_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { ADMIN_SIDEBAR_LABELS } from "../../../shared/data/admin-mock-data";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 const orderSummary = [
   { title: "Total Orders", value: "1,243", note: "+8.3% from last week", positive: true },
@@ -169,7 +170,7 @@ export function OrderAnalyticsPage() {
                   <tr key={row.orderId} className="border-t border-slate-100">
                     <td className="px-3 py-3 font-semibold text-[#0A3A92]">{row.orderId}</td>
                     <td className="px-3 py-3 text-slate-700">{row.branch}</td>
-                    <td className="px-3 py-3 font-medium text-slate-800">₹{row.amount.toLocaleString("en-IN")}</td>
+                    <td className="px-3 py-3 font-medium text-slate-800">{formatCurrency(row.amount)}</td>
                     <td className="px-3 py-3">
                       <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusBadge(row.status)}`}>{row.status}</span>
                     </td>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   Zap, CheckCircle2, Clock, Package, Truck, CreditCard,
-  AlertTriangle, Calendar, Receipt, PlayCircle, Sun, Moon,
+  AlertTriangle, Calendar, Receipt, PlayCircle,
   Download, Flag,
 } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
@@ -17,7 +17,8 @@ import {
   type DispatchSlot,
   type PaymentIntent,
 } from "../../../shared/data/workflow-mock-data";
-import { getCurrentDemoBranchName, getSubmittedOrders, getWarehouseOrders, getWorkflowOrders, calcOrderAmount, getDispatchAssignment, getDeliveryDiscrepancy, getDeliveryException, reportDeliveryDiscrepancy, type SubmittedOrder, type WarehouseOrderStatus, type DeliveryDiscrepancy, type DiscrepancyItem, type DeliveryExceptionRecord } from "../../../shared/lib/demo-store";
+import { getCurrentDemoBranchName, getSubmittedOrders, getWarehouseOrders, getWorkflowOrders, calcOrderAmount, getDispatchAssignment, getDispatchBatchesForOrder, getDeliveryDiscrepancy, getDeliveryException, getOrderDeliveryStatus, reportDeliveryDiscrepancy, getInvoiceAmount, getOutstandingAmount, getInvoiceSubtotal, type SubmittedOrder, type WarehouseOrderStatus, type DeliveryDiscrepancy, type DiscrepancyItem, type DeliveryExceptionRecord, type DispatchBatch } from "../../../shared/lib/demo-store";
+import { formatCurrency } from "../../../shared/utils/format-currency";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -34,20 +35,23 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 function lifecycleColors(s: BranchOrderLifecycle) {
-  if (s === "Order Closed")        return { badge: "bg-slate-200 text-slate-700",     dot: "bg-slate-500" };
-  if (s === "Payment Completed")   return { badge: "bg-emerald-100 text-emerald-700", dot: "bg-emerald-500" };
-  if (s === "Payment Pending")     return { badge: "bg-amber-100 text-amber-700",     dot: "bg-amber-500" };
-  if (s === "Invoice Generated")   return { badge: "bg-teal-100 text-teal-700",       dot: "bg-teal-500" };
-  if (s === "Delivered")           return { badge: "bg-sky-100 text-sky-700",         dot: "bg-sky-500" };
-  if (s === "In Transit")          return { badge: "bg-sky-100 text-sky-700",         dot: "bg-sky-400" };
+  if (s === "Order Closed")                   return { badge: "bg-slate-200 text-slate-700",     dot: "bg-slate-500" };
+  if (s === "Payment Completed")              return { badge: "bg-emerald-100 text-emerald-700", dot: "bg-emerald-500" };
+  if (s === "Payment Verification Pending")   return { badge: "bg-orange-100 text-orange-700",   dot: "bg-orange-500" };
+  if (s === "Payment Pending")                return { badge: "bg-amber-100 text-amber-700",     dot: "bg-amber-500" };
+  if (s === "Invoice Generated")              return { badge: "bg-teal-100 text-teal-700",       dot: "bg-teal-500" };
+  if (s === "Awaiting Invoice")               return { badge: "bg-orange-100 text-orange-700",   dot: "bg-orange-500" };
+  if (s === "Delivered")                      return { badge: "bg-sky-100 text-sky-700",         dot: "bg-sky-500" };
+  if (s === "Partially Delivered")            return { badge: "bg-amber-100 text-amber-700",     dot: "bg-amber-500" };
+  if (s === "In Transit")                     return { badge: "bg-sky-100 text-sky-700",         dot: "bg-sky-400" };
   if (s === "Morning Dispatch" || s === "Evening Dispatch")
-                                   return { badge: "bg-indigo-100 text-indigo-700",   dot: "bg-indigo-500" };
-  if (s === "Ready For Dispatch")  return { badge: "bg-violet-100 text-violet-700",   dot: "bg-violet-500" };
-  if (s === "Production Completed")return { badge: "bg-cyan-100 text-cyan-700",       dot: "bg-cyan-500" };
-  if (s === "Production Started")  return { badge: "bg-blue-100 text-blue-700",       dot: "bg-blue-500" };
-  if (s === "Added To Production") return { badge: "bg-cyan-100 text-cyan-700",       dot: "bg-cyan-500" };
-  if (s === "Approved")            return { badge: "bg-teal-100 text-teal-700",       dot: "bg-teal-500" };
-  if (s === "Warehouse Review")    return { badge: "bg-amber-100 text-amber-700",     dot: "bg-amber-500" };
+                                              return { badge: "bg-indigo-100 text-indigo-700",   dot: "bg-indigo-500" };
+  if (s === "Ready For Dispatch")             return { badge: "bg-violet-100 text-violet-700",   dot: "bg-violet-500" };
+  if (s === "Production Completed")           return { badge: "bg-cyan-100 text-cyan-700",       dot: "bg-cyan-500" };
+  if (s === "Production Started")             return { badge: "bg-blue-100 text-blue-700",       dot: "bg-blue-500" };
+  if (s === "Added To Production")            return { badge: "bg-cyan-100 text-cyan-700",       dot: "bg-cyan-500" };
+  if (s === "Approved")                       return { badge: "bg-teal-100 text-teal-700",       dot: "bg-teal-500" };
+  if (s === "Warehouse Review")               return { badge: "bg-amber-100 text-amber-700",     dot: "bg-amber-500" };
   return { badge: "bg-slate-100 text-slate-600", dot: "bg-slate-400" };
 }
 
@@ -62,6 +66,10 @@ function bannerConfig(s: BranchOrderLifecycle) {
     return { text: "ORDER IN TRANSIT", bg: "bg-sky-600", icon: <Truck className="h-5 w-5" /> };
   if (s === "Delivered" || s === "Invoice Generated" || s === "Payment Pending")
     return { text: "PAYMENT PENDING", bg: "bg-amber-500", icon: <CreditCard className="h-5 w-5" /> };
+  if (s === "Payment Verification Pending")
+    return { text: "PAYMENT VERIFICATION PENDING", bg: "bg-orange-500", icon: <CreditCard className="h-5 w-5" /> };
+  if (s === "Awaiting Invoice")
+    return { text: "DELIVERED — INVOICE PENDING", bg: "bg-orange-500", icon: <Receipt className="h-5 w-5" /> };
   if (s === "Payment Completed")
     return { text: "ORDER COMPLETE \u2014 THANK YOU", bg: "bg-emerald-600", icon: <CheckCircle2 className="h-5 w-5" /> };
   if (s === "Order Closed")
@@ -84,10 +92,6 @@ function dispatchStatusColor(s: string) {
   return "bg-amber-100 text-amber-700";
 }
 
-function slotIcon(slot: string) {
-  if (slot === "Morning") return <Sun className="h-4 w-4 text-amber-500" />;
-  return <Moon className="h-4 w-4 text-indigo-500" />;
-}
 
 const INTENT_OPTIONS: PaymentIntent[] = [
   "Ready To Pay", "Will Pay Later", "Payment Pending", "Payment Completed",
@@ -101,7 +105,7 @@ function intentColor(i: PaymentIntent) {
 }
 
 function fmt(v: number) {
-  return `\u20B9${v.toLocaleString("en-IN")}`;
+  return formatCurrency(v);
 }
 
 // ── Order card ────────────────────────────────────────────────────────────────
@@ -211,51 +215,21 @@ function TabOverview({ order }: { order: BranchOrderDetail }) {
       )}
 
       {s === "Approved" && (
-        <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 space-y-2">
+        <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 space-y-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Approval Details</p>
-          <div className="grid grid-cols-3 gap-3">
+          <ul className="space-y-1.5">
             {order.items.map(item => (
-              <div key={item.product} className="rounded-lg bg-white px-3 py-2.5 border border-teal-100">
-                <p className="text-[10px] text-slate-400 uppercase truncate">{item.product}</p>
-                <p className="text-sm font-semibold text-teal-700">{item.approvedQty} {item.unit}</p>
-                {item.rejectedQty > 0 && <p className="text-[10px] text-red-500">&minus;{item.rejectedQty} cancelled</p>}
-              </div>
+              <li key={item.product} className="flex items-center gap-2 text-sm text-teal-800">
+                <CheckCircle2 className="h-4 w-4 text-teal-500 shrink-0" />
+                <span>{item.product}</span>
+              </li>
             ))}
-          </div>
-          <div className="flex items-center gap-3 text-sm">
-            <CheckCircle2 className="h-4 w-4 text-teal-600 shrink-0" />
-            <span className="text-teal-700">Approved by Warehouse Manager · Entering production shortly</span>
-          </div>
+          </ul>
+          <p className="text-xs text-teal-600">Approved by Warehouse Manager · Entering production shortly</p>
         </div>
       )}
 
-      {(s === "Added To Production" || s === "Production Started") && (() => {
-        const prods = BRANCH_PRODUCTION_STATUS[order.orderId];
-        const overall = prods ? Math.round(prods.reduce((a, p) => a + p.pct, 0) / prods.length) : 0;
-        return (
-          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Production Progress</p>
-              <span className="text-lg font-bold text-blue-700">{overall}%</span>
-            </div>
-            <div className="h-2.5 w-full rounded-full bg-blue-100">
-              <div className="h-2.5 rounded-full bg-blue-500 transition-all" style={{ width: `${overall}%` }} />
-            </div>
-            {prods && prods.map(p => (
-              <div key={p.product} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 border border-blue-100 text-sm">
-                <span className="font-medium text-slate-700">{p.product}</span>
-                <div className="flex items-center gap-2">
-                  <div className="w-20 h-1.5 rounded-full bg-blue-100">
-                    <div className="h-1.5 rounded-full bg-blue-400" style={{ width: `${p.pct}%` }} />
-                  </div>
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${prodStatusColors(p.status)}`}>{p.status}</span>
-                </div>
-              </div>
-            ))}
-            <p className="text-xs text-blue-600">Expected completion: {order.expectedDelivery}</p>
-          </div>
-        );
-      })()}
+
 
       {s === "Ready For Dispatch" && order.dispatches.length > 0 && (
         <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 space-y-3">
@@ -351,8 +325,29 @@ function TabOverview({ order }: { order: BranchOrderDetail }) {
         </div>
       )}
 
-      {s === "Invoice Generated" && (
-        <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 space-y-2">
+      {s === "Awaiting Invoice" && (() => {
+        const delivery = getOrderDeliveryStatus(order.orderId);
+        const isPartial = delivery.overallStatus === "Partial Delivery";
+        return (
+          <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">Delivery Confirmed — Awaiting Invoice</p>
+            <div className="flex items-center gap-2 text-sm text-orange-700">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              <span>{isPartial ? "Partial delivery confirmed." : "Full delivery confirmed."} Warehouse is reviewing and will generate invoice shortly.</span>
+            </div>
+            {delivery.hasPendingItems && (
+              <div className="rounded-lg bg-white border border-orange-100 px-3 py-2 text-xs text-orange-700 space-y-1">
+                <p className="font-semibold">Pending items (not billed):</p>
+                {delivery.pendingLines.map(l => (
+                  <p key={l.product}>{l.product}: {l.pendingQty} {l.unit} — {l.reason || "Pending"}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {s === "Invoice Generated" && (        <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Bill Details</p>
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg bg-white px-3 py-2.5 border border-teal-100">
@@ -480,14 +475,14 @@ function TabProduction({ order }: { order: BranchOrderDetail }) {
     "Added To Production",
     "Production Started", "Production Completed",
     "Ready For Dispatch", "Morning Dispatch", "Evening Dispatch",
-    "In Transit", "Delivered", "Invoice Generated", "Payment Pending",
-    "Payment Completed", "Order Closed",
+    "In Transit", "Delivered", "Awaiting Invoice", "Invoice Generated", "Payment Pending",
+    "Payment Verification Pending", "Payment Completed", "Order Closed",
   ];
   const isProductionCompleted = [
     "Production Completed",
     "Ready For Dispatch", "Morning Dispatch", "Evening Dispatch",
-    "In Transit", "Delivered", "Invoice Generated", "Payment Pending",
-    "Payment Completed", "Order Closed",
+    "In Transit", "Delivered", "Awaiting Invoice", "Invoice Generated", "Payment Pending",
+    "Payment Verification Pending", "Payment Completed", "Order Closed",
   ].includes(order.lifecycleStatus);
 
   // Gate: only show after Added To Production
@@ -573,18 +568,12 @@ function TabProduction({ order }: { order: BranchOrderDetail }) {
           <div>
             <p className="mb-2 text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Products Produced</p>
             <div className="space-y-1.5">
-              {order.items.map(item => {
-                const producedQty = item.approvedQty > 0 ? item.approvedQty : item.orderedQty;
-                return (
+              {order.items.map(item => (
                   <div key={item.product} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 border border-cyan-100">
                     <span className="text-sm font-medium text-slate-800">{item.product}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-cyan-700">{producedQty} {item.unit}</span>
-                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Produced</span>
-                    </div>
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Produced</span>
                   </div>
-                );
-              })}
+              ))}
             </div>
           </div>
         </div>
@@ -668,8 +657,8 @@ function TabProduction({ order }: { order: BranchOrderDetail }) {
 
 // ── Delivery stages that require delivery info ────────────────────────────────
 const DELIVERY_ACTIVE_STAGES: BranchOrderLifecycle[] = [
-  "In Transit", "Delivered", "Invoice Generated", "Payment Pending",
-  "Payment Completed", "Order Closed",
+  "In Transit", "Delivered", "Awaiting Invoice", "Invoice Generated", "Payment Pending",
+  "Payment Verification Pending", "Payment Completed", "Order Closed",
 ];
 
 // ── Generate deterministic mock delivery lines for an order ──────────────────
@@ -706,7 +695,6 @@ const MOCK_VEHICLES = [
   "AP 16 AB 1234", "AP 29 BX 7734", "AP 16 CD 5678", "AP 37 EF 9012",
   "AP 16 GH 3456", "AP 29 IJ 7890", "AP 16 KL 2345", "AP 37 MN 6789",
 ];
-const MOCK_WAREHOUSES = ["Central Warehouse", "Vijayawada Main Hub", "Ring Road Depot"];
 
 function hashStr(s: string): number {
   let h = 0;
@@ -723,7 +711,7 @@ function mockDispatchForOrder(order: BranchOrderDetail): DispatchSlot[] {
   const s = order.lifecycleStatus;
   const status: DispatchSlot["status"] =
     s === "Ready For Dispatch" ? "Scheduled"
-    : s === "Delivered" || s === "Invoice Generated" || s === "Payment Pending"
+    : s === "Delivered" || s === "Awaiting Invoice" || s === "Invoice Generated" || s === "Payment Pending"
       || s === "Payment Completed" || s === "Order Closed" ? "Delivered"
     : "Dispatched";
   return [{
@@ -739,8 +727,8 @@ function mockDispatchForOrder(order: BranchOrderDetail): DispatchSlot[] {
 function TabDispatches({ order }: { order: BranchOrderDetail }) {
   const DISPATCH_STAGES: BranchOrderLifecycle[] = [
     "Ready For Dispatch", "Morning Dispatch", "Evening Dispatch",
-    "In Transit", "Delivered", "Invoice Generated", "Payment Pending",
-    "Payment Completed", "Order Closed",
+    "In Transit", "Delivered", "Awaiting Invoice", "Invoice Generated", "Payment Pending",
+    "Payment Verification Pending", "Payment Completed", "Order Closed",
   ];
 
   if (!DISPATCH_STAGES.includes(order.lifecycleStatus)) {
@@ -753,11 +741,74 @@ function TabDispatches({ order }: { order: BranchOrderDetail }) {
   }
 
   const s = order.lifecycleStatus;
-  const isDelivered = ["Delivered", "Invoice Generated", "Payment Pending", "Payment Completed", "Order Closed"].includes(s);
 
+  // Try live dispatch batches first
+  const liveBatches: DispatchBatch[] = getDispatchBatchesForOrder(order.orderId);
+
+  if (liveBatches.length > 0) {
+    return (
+      <div className="space-y-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Dispatch History — {liveBatches.length} Batch{liveBatches.length > 1 ? "es" : ""}
+        </p>
+        {liveBatches.map(batch => {
+          const statusColor =
+            batch.status === "Delivered" ? "bg-emerald-100 text-emerald-700"
+            : batch.status === "In Transit" ? "bg-sky-100 text-sky-700"
+            : "bg-amber-100 text-amber-700";
+          const slotColor = batch.slot === "Morning" ? "bg-amber-100 text-amber-700" : "bg-indigo-100 text-indigo-700";
+          return (
+            <div key={batch.batchId} className="rounded-xl border border-slate-200 p-4 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-700">Batch {batch.batchNumber}</span>
+                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${slotColor}`}>
+                    {batch.slot} Dispatch
+                  </span>
+                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusColor}`}>
+                    {batch.status}
+                  </span>
+                </div>
+                <span className="text-xs text-slate-400">{batch.dispatchTime}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-lg bg-slate-50 px-3 py-2">
+                  <p className="text-[10px] text-slate-400 uppercase">Driver</p>
+                  <p className="font-semibold text-slate-800">{batch.driverName}</p>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2">
+                  <p className="text-[10px] text-slate-400 uppercase">Vehicle</p>
+                  <p className="font-semibold text-slate-800">{batch.vehicleNumber}</p>
+                </div>
+              </div>
+              <div>
+                <p className="mb-1 text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Products</p>
+                <div className="space-y-1">
+                  {batch.status === "Delivered" && batch.deliveryLines && batch.deliveryLines.length > 0
+                    ? batch.deliveryLines.map(dl => (
+                        <div key={dl.product} className="flex items-center rounded-md bg-white border border-slate-100 px-3 py-1.5 text-sm">
+                          <span className="text-slate-700">{dl.product}</span>
+                        </div>
+                      ))
+                    : batch.products.map(p => (
+                        <div key={p.product} className="flex items-center gap-2 text-sm">
+                          <span className="h-1.5 w-1.5 rounded-full bg-slate-400 shrink-0" />
+                          <span className="text-slate-700">{p.product}</span>
+                        </div>
+                      ))
+                  }
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // Fallback: single legacy dispatch assignment
   const assignment = getDispatchAssignment(order.orderId);
 
-  // If no real assignment exists, show a placeholder state
   if (!assignment) {
     return (
       <div className="flex flex-col items-center justify-center py-14 text-slate-400">
@@ -766,6 +817,8 @@ function TabDispatches({ order }: { order: BranchOrderDetail }) {
       </div>
     );
   }
+
+  const isDelivered = ["Delivered", "Awaiting Invoice", "Invoice Generated", "Payment Pending", "Payment Verification Pending", "Payment Completed", "Order Closed"].includes(s);
 
   const statusLabel =
     s === "Ready For Dispatch" ? "Ready For Dispatch"
@@ -791,14 +844,8 @@ function TabDispatches({ order }: { order: BranchOrderDetail }) {
     : s === "In Transit" ? "In Transit"
     : "Scheduled";
 
-  // Products from real dispatches or order items
-  const products = order.dispatches.length > 0
-    ? order.dispatches[0].products
-    : order.items.map(i => ({ name: i.product, qty: i.approvedQty || i.orderedQty, unit: i.unit }));
-
   return (
     <div className="space-y-4">
-      {/* Status banner */}
       <div className={`flex items-center gap-3 rounded-xl border px-5 py-4 ${bannerClass}`}>
         <Truck className={`h-5 w-5 shrink-0 ${truckColor}`} />
         <p className="text-sm font-bold">{statusLabel}</p>
@@ -806,13 +853,12 @@ function TabDispatches({ order }: { order: BranchOrderDetail }) {
           {dispatchStatusLabel}
         </span>
       </div>
-
-      {/* Dispatch details */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         {[
           { label: "Dispatch Date & Time", value: assignment.dispatchTime },
-          { label: "Assigned Driver",      value: assignment.driverName },
-          { label: "Assigned Vehicle",     value: assignment.vehicleNumber },
+          { label: "Dispatch Type",        value: `${assignment.slot ?? "Morning"} Dispatch` },
+          { label: "Driver",               value: assignment.driverName },
+          { label: "Vehicle",              value: assignment.vehicleNumber },
           { label: "Dispatch Status",      value: s },
         ].map(f => (
           <div key={f.label} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
@@ -820,22 +866,6 @@ function TabDispatches({ order }: { order: BranchOrderDetail }) {
             <p className="mt-0.5 text-sm font-semibold text-slate-800">{f.value}</p>
           </div>
         ))}
-      </div>
-
-      {/* Products & Quantities */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Products & Quantities</p>
-        <div className="space-y-2">
-          {products.map((p: { name: string; qty: number; unit: string }) => (
-            <div key={p.name} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-              <div className="flex items-center gap-2">
-                <Package className="h-4 w-4 text-slate-400" />
-                <span className="text-sm font-medium text-slate-800">{p.name}</span>
-              </div>
-              <span className="text-sm font-semibold text-indigo-700">{p.qty} {p.unit}</span>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );
@@ -846,13 +876,10 @@ function TabDeliveries({ order }: { order: BranchOrderDetail }) {
   const [discrepancy, setDiscrepancy] = useState<DeliveryDiscrepancy | undefined>(
     () => getDeliveryDiscrepancy(order.orderId)
   );
-
-  // Modal form state
   const [missingQty, setMissingQty] = useState("");
   const [damagedItems, setDamagedItems] = useState("");
   const [wrongProduct, setWrongProduct] = useState("");
   const [otherRemarks, setOtherRemarks] = useState("");
-
   const currentBranch = getCurrentDemoBranchName();
 
   if (!DELIVERY_ACTIVE_STAGES.includes(order.lifecycleStatus)) {
@@ -864,238 +891,178 @@ function TabDeliveries({ order }: { order: BranchOrderDetail }) {
     );
   }
 
+  const liveBatches: DispatchBatch[] = getDispatchBatchesForOrder(order.orderId);
   const s = order.lifecycleStatus;
-  const isInTransit = s === "In Transit";
-  const assignment = getDispatchAssignment(order.orderId);
-
-  const driverName = assignment?.driverName ?? "—";
-  const vehicleNumber = assignment?.vehicleNumber ?? "—";
-  const dispatchTime = assignment?.dispatchTime ?? "—";
-  const deliveredTime = assignment
-    ? (assignment.slot === "Morning" ? "09:45 AM" : "06:15 PM")
-    : "—";
-
-  // Check for delivery exception record (set by warehouse delivery confirmation)
-  const exceptionRecord: DeliveryExceptionRecord | undefined = getDeliveryException(order.orderId);
-  const hasException = !!exceptionRecord;
-  const isPartialDelivery = hasException && exceptionRecord.deliveryStatus === "Partial Delivery";
-
-  // Determine delivery status label
-  const deliveryStatusLabel = isPartialDelivery ? "Partial Delivery" : (discrepancy ? "Difference Reported" : "Delivered");
-
-  // Build delivered products list:
-  // If an exception record exists, use its per-item receivedQty (actual quantities)
-  // Otherwise fall back to dispatch products or order items
-  const deliveredProducts: { name: string; qty: number; unit: string }[] = hasException
-    ? exceptionRecord.items.map(item => ({
-        name: item.product,
-        qty: item.receivedQty,
-        unit: item.unit,
-      }))
-    : (order.dispatches.length > 0
-        ? order.dispatches[0].products
-        : order.items.map(i => ({ name: i.product, qty: i.approvedQty || i.orderedQty, unit: i.unit })));
+  const hasAnyDelivered = liveBatches.some(b => b.status === "Delivered");
+  const allDelivered = liveBatches.length > 0 && liveBatches.every(b => b.status === "Delivered");
 
   function handleSubmitDiscrepancy() {
     const items: DiscrepancyItem[] = [];
-
-    if (missingQty.trim()) {
-      items.push({
-        product: order.items[0]?.product ?? "N/A",
-        unit: order.items[0]?.unit ?? "pcs",
-        deliveredQty: order.items[0]?.approvedQty || order.items[0]?.orderedQty || 0,
-        reportedIssue: "Missing Quantity",
-        missingQty: Number(missingQty) || 0,
-        remarks: missingQty.trim(),
-      });
-    }
-    if (damagedItems.trim()) {
-      items.push({
-        product: order.items[0]?.product ?? "N/A",
-        unit: order.items[0]?.unit ?? "pcs",
-        deliveredQty: order.items[0]?.approvedQty || order.items[0]?.orderedQty || 0,
-        reportedIssue: "Damaged Items",
-        remarks: damagedItems.trim(),
-      });
-    }
-    if (wrongProduct.trim()) {
-      items.push({
-        product: order.items[0]?.product ?? "N/A",
-        unit: order.items[0]?.unit ?? "pcs",
-        deliveredQty: order.items[0]?.approvedQty || order.items[0]?.orderedQty || 0,
-        reportedIssue: "Wrong Product",
-        remarks: wrongProduct.trim(),
-      });
-    }
-    if (otherRemarks.trim()) {
-      items.push({
-        product: order.items[0]?.product ?? "N/A",
-        unit: order.items[0]?.unit ?? "pcs",
-        deliveredQty: order.items[0]?.approvedQty || order.items[0]?.orderedQty || 0,
-        reportedIssue: "Other",
-        remarks: otherRemarks.trim(),
-      });
-    }
-
+    if (missingQty.trim()) items.push({ product: order.items[0]?.product ?? "N/A", unit: order.items[0]?.unit ?? "pcs", deliveredQty: order.items[0]?.approvedQty || order.items[0]?.orderedQty || 0, reportedIssue: "Missing Quantity", missingQty: Number(missingQty) || 0, remarks: missingQty.trim() });
+    if (damagedItems.trim()) items.push({ product: order.items[0]?.product ?? "N/A", unit: order.items[0]?.unit ?? "pcs", deliveredQty: order.items[0]?.approvedQty || order.items[0]?.orderedQty || 0, reportedIssue: "Damaged Items", remarks: damagedItems.trim() });
+    if (wrongProduct.trim()) items.push({ product: order.items[0]?.product ?? "N/A", unit: order.items[0]?.unit ?? "pcs", deliveredQty: order.items[0]?.approvedQty || order.items[0]?.orderedQty || 0, reportedIssue: "Wrong Product", remarks: wrongProduct.trim() });
+    if (otherRemarks.trim()) items.push({ product: order.items[0]?.product ?? "N/A", unit: order.items[0]?.unit ?? "pcs", deliveredQty: order.items[0]?.approvedQty || order.items[0]?.orderedQty || 0, reportedIssue: "Other", remarks: otherRemarks.trim() });
     if (items.length === 0) return;
-
     const result = reportDeliveryDiscrepancy(order.orderId, currentBranch, items);
     setDiscrepancy(result);
     setShowModal(false);
     setMissingQty(""); setDamagedItems(""); setWrongProduct(""); setOtherRemarks("");
   }
 
+  if (liveBatches.length > 0) {
+    const sorted = [...liveBatches].sort((a, b) => a.batchNumber - b.batchNumber);
+    return (
+      <div className="space-y-4">
+        <div className={`rounded-xl border p-3 flex items-center gap-3 ${allDelivered ? "border-emerald-200 bg-emerald-50" : hasAnyDelivered ? "border-amber-200 bg-amber-50" : "border-sky-200 bg-sky-50"}`}>
+          {allDelivered ? <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" /> : hasAnyDelivered ? <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" /> : <Truck className="h-4 w-4 text-sky-600 shrink-0" />}
+          <span className={`text-sm font-semibold ${allDelivered ? "text-emerald-800" : hasAnyDelivered ? "text-amber-800" : "text-sky-800"}`}>
+            {allDelivered ? "All Batches Delivered" : hasAnyDelivered ? "Partially Delivered — Some Batches Pending" : "Order In Transit"}
+          </span>
+          <span className={`ml-auto rounded-full px-2.5 py-0.5 text-xs font-semibold ${allDelivered ? "bg-emerald-200 text-emerald-800" : hasAnyDelivered ? "bg-amber-200 text-amber-800" : "bg-sky-200 text-sky-800"}`}>
+            {sorted.filter(b => b.status === "Delivered").length}/{sorted.length} batches delivered
+          </span>
+        </div>
+
+        {sorted.map(batch => {
+          const isDelivered = batch.status === "Delivered";
+          const isInTransitBatch = batch.status === "In Transit";
+          const batchHasLines = batch.deliveryLines && batch.deliveryLines.length > 0;
+          const slotColor = batch.slot === "Morning" ? "bg-amber-100 text-amber-700" : "bg-indigo-100 text-indigo-700";
+          const statusColor = isDelivered ? "bg-emerald-100 text-emerald-700" : isInTransitBatch ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-500";
+          return (
+            <div key={batch.batchId} className={`rounded-xl border p-4 space-y-3 ${isDelivered ? "border-emerald-200 bg-emerald-50/30" : isInTransitBatch ? "border-sky-200 bg-sky-50/30" : "border-slate-200 bg-slate-50"}`}>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-700 text-sm">Batch {batch.batchNumber}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${slotColor}`}>{batch.slot} Dispatch</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusColor}`}>{batch.status}</span>
+                </div>
+                <span className="text-xs text-slate-400">{isDelivered ? (batch.deliveredAt ?? "—") : batch.dispatchTime}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+                <div className="rounded-lg bg-white border border-slate-100 px-3 py-2"><p className="text-[10px] text-slate-400 uppercase">Driver</p><p className="font-semibold text-slate-800">{batch.driverName}</p></div>
+                <div className="rounded-lg bg-white border border-slate-100 px-3 py-2"><p className="text-[10px] text-slate-400 uppercase">Vehicle</p><p className="font-semibold text-slate-800">{batch.vehicleNumber}</p></div>
+                <div className="rounded-lg bg-white border border-slate-100 px-3 py-2"><p className="text-[10px] text-slate-400 uppercase">Delivery Confirmation</p><p className={`font-semibold ${isDelivered ? "text-emerald-700" : "text-slate-400"}`}>{isDelivered ? "Confirmed" : "Pending"}</p></div>
+              </div>
+              {isDelivered && batchHasLines ? (
+                <div className="overflow-x-auto rounded-lg border border-emerald-200">
+                  <table className="w-full text-xs">
+                    <thead className="bg-emerald-50 text-[10px] uppercase tracking-wide text-slate-500">
+                      <tr><th className="px-3 py-2 text-left">Product</th><th className="px-3 py-2 text-right">Ordered</th><th className="px-3 py-2 text-right">Delivered</th><th className="px-3 py-2 text-right">Pending</th><th className="px-3 py-2">Reason</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-emerald-100">
+                      {batch.deliveryLines!.map(l => (
+                        <tr key={l.product} className="bg-white">
+                          <td className="px-3 py-2 font-medium text-slate-800">{l.product}</td>
+                          <td className="px-3 py-2 text-right text-slate-500">{l.orderedQty} {l.unit}</td>
+                          <td className={`px-3 py-2 text-right font-semibold ${l.deliveredQty < l.orderedQty ? "text-amber-600" : "text-emerald-600"}`}>{l.deliveredQty} {l.unit}</td>
+                          <td className={`px-3 py-2 text-right ${l.pendingQty > 0 ? "text-red-500 font-semibold" : "text-slate-300"}`}>{l.pendingQty > 0 ? `${l.pendingQty} ${l.unit}` : "—"}</td>
+                          <td className="px-3 py-2 text-slate-500">{l.reason || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {batch.products.map(p => (
+                    <span key={p.product} className="inline-flex items-center gap-1 rounded-full bg-white border border-slate-200 px-2.5 py-1 text-xs text-slate-600">
+                      <Package className="h-3 w-3 text-slate-400" />{p.product} × {p.qty} {p.unit}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {hasAnyDelivered && (
+          <div className="flex justify-end">
+            {discrepancy ? (
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800"><Flag className="h-3.5 w-3.5" />Difference Reported</span>
+            ) : (
+              <button onClick={() => setShowModal(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition-colors"><Flag className="h-3.5 w-3.5" />Report Difference</button>
+            )}
+          </div>
+        )}
+
+        {showModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+              <h2 className="mb-4 text-base font-bold text-slate-800">Report Delivery Difference</h2>
+              <div className="space-y-3">
+                <div><label className="mb-1 block text-xs font-semibold text-slate-500 uppercase tracking-wide">Missing Quantity</label><input type="text" value={missingQty} onChange={e => setMissingQty(e.target.value)} placeholder="e.g. 5 pcs of Gulab Jamun missing" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400" /></div>
+                <div><label className="mb-1 block text-xs font-semibold text-slate-500 uppercase tracking-wide">Damaged Items</label><input type="text" value={damagedItems} onChange={e => setDamagedItems(e.target.value)} placeholder="e.g. 2 boxes damaged" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400" /></div>
+                <div><label className="mb-1 block text-xs font-semibold text-slate-500 uppercase tracking-wide">Wrong Product</label><input type="text" value={wrongProduct} onChange={e => setWrongProduct(e.target.value)} placeholder="e.g. Received Rasmalai instead of Rasgulla" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400" /></div>
+                <div><label className="mb-1 block text-xs font-semibold text-slate-500 uppercase tracking-wide">Other Remarks</label><textarea value={otherRemarks} onChange={e => setOtherRemarks(e.target.value)} rows={2} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 resize-none" /></div>
+              </div>
+              <div className="mt-5 flex gap-3">
+                <button onClick={() => setShowModal(false)} className="flex-1 rounded-lg border border-slate-200 bg-slate-50 py-2 text-xs font-semibold text-slate-600">Cancel</button>
+                <button onClick={handleSubmitDiscrepancy} disabled={!missingQty.trim() && !damagedItems.trim() && !wrongProduct.trim() && !otherRemarks.trim()} className="flex-1 rounded-lg bg-amber-500 py-2 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Submit Report</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Fallback: no live batches
+  const assignment = getDispatchAssignment(order.orderId);
+  const driverName = assignment?.driverName ?? "—";
+  const vehicleNumber = assignment?.vehicleNumber ?? "—";
+  const dispatchTime = assignment?.dispatchTime ?? "—";
+  const exceptionRecord: DeliveryExceptionRecord | undefined = getDeliveryException(order.orderId);
+  const isPartialDelivery = !!exceptionRecord && exceptionRecord.deliveryStatus === "Partial Delivery";
+  const deliveryStatusLabel = isPartialDelivery ? "Partial Delivery" : (discrepancy ? "Difference Reported" : "Delivered");
+  const isInTransit = s === "In Transit";
+
   return (
     <div className="space-y-4">
-      {/* In Transit */}
-      {isInTransit && (
+      {isInTransit ? (
         <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <Truck className="h-5 w-5 text-sky-600 shrink-0" />
-            <span className="text-sm font-bold text-sky-800">Order In Transit</span>
-            <span className="ml-auto rounded-full bg-sky-200 px-2.5 py-0.5 text-xs font-semibold text-sky-800">In Transit</span>
-          </div>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-            {[
-              { label: "Delivery Status", value: "In Transit" },
-              { label: "Driver",          value: driverName },
-              { label: "Vehicle",         value: vehicleNumber },
-              { label: "Dispatch Time",   value: dispatchTime },
-            ].map(f => (
-              <div key={f.label} className="rounded-lg bg-white border border-sky-100 px-3 py-2.5">
-                <p className="text-[10px] uppercase tracking-wide text-slate-400">{f.label}</p>
-                <p className="mt-0.5 text-sm font-semibold text-slate-800">{f.value}</p>
-              </div>
+          <div className="flex items-center gap-2"><Truck className="h-5 w-5 text-sky-600 shrink-0" /><span className="text-sm font-bold text-sky-800">Order In Transit</span></div>
+          <div className="grid grid-cols-2 gap-3">
+            {[{ label: "Driver", value: driverName }, { label: "Vehicle", value: vehicleNumber }, { label: "Dispatch Time", value: dispatchTime }].map(f => (
+              <div key={f.label} className="rounded-lg bg-white border border-sky-100 px-3 py-2.5"><p className="text-[10px] uppercase tracking-wide text-slate-400">{f.label}</p><p className="mt-0.5 text-sm font-semibold text-slate-800">{f.value}</p></div>
             ))}
           </div>
         </div>
-      )}
-
-      {/* Delivered */}
-      {!isInTransit && (
+      ) : (
         <div className={`rounded-xl border p-4 space-y-3 ${isPartialDelivery ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
           <div className="flex items-center gap-2">
-            {isPartialDelivery
-              ? <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
-              : <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />}
-            <span className={`text-sm font-bold ${isPartialDelivery ? "text-amber-800" : "text-emerald-800"}`}>
-              {isPartialDelivery ? "Partial Delivery" : "Delivery Completed"}
-            </span>
-            <span className={`ml-auto rounded-full px-2.5 py-0.5 text-xs font-semibold ${isPartialDelivery ? "bg-amber-200 text-amber-800" : "bg-emerald-200 text-emerald-800"}`}>
-              {deliveryStatusLabel}
-            </span>
+            {isPartialDelivery ? <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" /> : <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />}
+            <span className={`text-sm font-bold ${isPartialDelivery ? "text-amber-800" : "text-emerald-800"}`}>{isPartialDelivery ? "Partial Delivery" : "Delivery Completed"}</span>
+            <span className={`ml-auto rounded-full px-2.5 py-0.5 text-xs font-semibold ${isPartialDelivery ? "bg-amber-200 text-amber-800" : "bg-emerald-200 text-emerald-800"}`}>{deliveryStatusLabel}</span>
           </div>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-            {[
-              { label: "Delivery Date & Time", value: deliveredTime },
-              { label: "Driver",               value: driverName },
-              { label: "Vehicle",              value: vehicleNumber },
-              { label: "Delivery Status",      value: deliveryStatusLabel },
-            ].map(f => (
-              <div key={f.label} className={`rounded-lg bg-white px-3 py-2.5 border ${isPartialDelivery ? "border-amber-100" : "border-emerald-100"}`}>
-                <p className="text-[10px] uppercase tracking-wide text-slate-400">{f.label}</p>
-                <p className={`mt-0.5 text-sm font-semibold ${f.label === "Delivery Status" && (isPartialDelivery || discrepancy) ? "text-amber-700" : "text-slate-800"}`}>{f.value}</p>
-              </div>
+          <div className="grid grid-cols-2 gap-3">
+            {[{ label: "Driver", value: driverName }, { label: "Vehicle", value: vehicleNumber }, { label: "Delivery Status", value: deliveryStatusLabel }].map(f => (
+              <div key={f.label} className={`rounded-lg bg-white px-3 py-2.5 border ${isPartialDelivery ? "border-amber-100" : "border-emerald-100"}`}><p className="text-[10px] uppercase tracking-wide text-slate-400">{f.label}</p><p className="mt-0.5 text-sm font-semibold text-slate-800">{f.value}</p></div>
             ))}
           </div>
         </div>
       )}
-
-      {/* Delivered Products */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Delivered Products</p>
-        <div className="space-y-2">
-          {deliveredProducts.map((p: { name: string; qty: number; unit: string }) => (
-            <div key={p.name} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-              <div className="flex items-center gap-2">
-                <Package className="h-4 w-4 text-slate-400" />
-                <span className="text-sm font-medium text-slate-800">{p.name}</span>
-              </div>
-              <span className="text-sm font-semibold text-emerald-700">{p.qty} {p.unit}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Report Difference button — only when delivered */}
       {!isInTransit && (
         <div className="flex justify-end">
           {discrepancy ? (
-            <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800">
-              <Flag className="h-3.5 w-3.5" />Difference Reported
-            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800"><Flag className="h-3.5 w-3.5" />Difference Reported</span>
           ) : (
-            <button
-              onClick={() => setShowModal(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition-colors"
-            >
-              <Flag className="h-3.5 w-3.5" />Report Difference
-            </button>
+            <button onClick={() => setShowModal(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition-colors"><Flag className="h-3.5 w-3.5" />Report Difference</button>
           )}
         </div>
       )}
-
-      {/* Report Difference Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
             <h2 className="mb-4 text-base font-bold text-slate-800">Report Delivery Difference</h2>
             <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-500 uppercase tracking-wide">Missing Quantity</label>
-                <input
-                  type="text"
-                  value={missingQty}
-                  onChange={e => setMissingQty(e.target.value)}
-                  placeholder="e.g. 5 pcs of Gulab Jamun missing"
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-500 uppercase tracking-wide">Damaged Items</label>
-                <input
-                  type="text"
-                  value={damagedItems}
-                  onChange={e => setDamagedItems(e.target.value)}
-                  placeholder="e.g. 2 boxes of Kaju Katli damaged"
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-500 uppercase tracking-wide">Wrong Product</label>
-                <input
-                  type="text"
-                  value={wrongProduct}
-                  onChange={e => setWrongProduct(e.target.value)}
-                  placeholder="e.g. Received Rasmalai instead of Rasgulla"
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-500 uppercase tracking-wide">Other Remarks</label>
-                <textarea
-                  value={otherRemarks}
-                  onChange={e => setOtherRemarks(e.target.value)}
-                  placeholder="Any other observations..."
-                  rows={2}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200 resize-none"
-                />
-              </div>
+              <div><label className="mb-1 block text-xs font-semibold text-slate-500 uppercase tracking-wide">Missing Quantity</label><input type="text" value={missingQty} onChange={e => setMissingQty(e.target.value)} placeholder="e.g. 5 pcs missing" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400" /></div>
+              <div><label className="mb-1 block text-xs font-semibold text-slate-500 uppercase tracking-wide">Damaged Items</label><input type="text" value={damagedItems} onChange={e => setDamagedItems(e.target.value)} placeholder="e.g. 2 boxes damaged" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400" /></div>
+              <div><label className="mb-1 block text-xs font-semibold text-slate-500 uppercase tracking-wide">Other Remarks</label><textarea value={otherRemarks} onChange={e => setOtherRemarks(e.target.value)} rows={2} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 resize-none" /></div>
             </div>
             <div className="mt-5 flex gap-3">
-              <button
-                onClick={() => setShowModal(false)}
-                className="flex-1 rounded-lg border border-slate-200 bg-slate-50 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSubmitDiscrepancy}
-                disabled={!missingQty.trim() && !damagedItems.trim() && !wrongProduct.trim() && !otherRemarks.trim()}
-                className="flex-1 rounded-lg bg-amber-500 py-2 text-xs font-semibold text-white hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Submit Report
-              </button>
+              <button onClick={() => setShowModal(false)} className="flex-1 rounded-lg border border-slate-200 bg-slate-50 py-2 text-xs font-semibold text-slate-600">Cancel</button>
+              <button onClick={handleSubmitDiscrepancy} disabled={!missingQty.trim() && !damagedItems.trim() && !otherRemarks.trim()} className="flex-1 rounded-lg bg-amber-500 py-2 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Submit Report</button>
             </div>
           </div>
         </div>
@@ -1113,10 +1080,10 @@ function TabFinancials({ order, intentMap, setIntentMap, onGenerateBill, showInv
   setShowInvoice: (v: boolean) => void;
 }) {
   const INVOICE_STAGES: BranchOrderLifecycle[] = [
-    "Invoice Generated", "Payment Pending", "Payment Completed", "Order Closed",
+    "Invoice Generated", "Payment Pending", "Payment Verification Pending", "Payment Completed", "Order Closed",
   ];
   const PAYMENT_STAGES: BranchOrderLifecycle[] = [
-    "Payment Pending", "Payment Completed", "Order Closed",
+    "Payment Pending", "Payment Verification Pending", "Payment Completed", "Order Closed",
   ];
 
   // Gate: only show after Invoice Generated
@@ -1130,8 +1097,12 @@ function TabFinancials({ order, intentMap, setIntentMap, onGenerateBill, showInv
   }
 
   const currentIntent = intentMap[order.orderId] ?? order.paymentIntent;
-  const isSettled = order.lifecycleStatus === "Payment Completed" || currentIntent === "Payment Completed";
-  const billableValue = order.deliveredValue > 0 ? order.deliveredValue : order.orderValue;
+  const isSettled = order.lifecycleStatus === "Payment Completed" || order.lifecycleStatus === "Order Closed" || currentIntent === "Payment Completed";
+  const isVerificationPending = order.lifecycleStatus === "Payment Verification Pending";
+  const invoiceSubtotal = getInvoiceSubtotal(order.orderId);
+  const invoiceTotal = getInvoiceAmount(order.orderId);
+  // Fallback to orderValue when no delivery confirmation exists yet (mock orders)
+  const billableValue = invoiceSubtotal > 0 ? invoiceSubtotal : (order.deliveredValue > 0 ? order.deliveredValue : order.orderValue);
 
   return (
     <div className="space-y-4">
@@ -1185,15 +1156,22 @@ function TabFinancials({ order, intentMap, setIntentMap, onGenerateBill, showInv
             <div className="flex flex-wrap gap-2">
               {INTENT_OPTIONS.map(opt => (
                 <button key={opt}
-                  onClick={() => !isSettled && setIntentMap({ ...intentMap, [order.orderId]: opt })}
-                  disabled={isSettled}
+                  onClick={() => !isSettled && !isVerificationPending && setIntentMap({ ...intentMap, [order.orderId]: opt })}
+                  disabled={isSettled || isVerificationPending}
                   className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all disabled:cursor-default ${currentIntent === opt ? intentColor(opt) : "border-slate-200 bg-white text-slate-400 hover:bg-slate-50"}`}>
                   {opt}
                 </button>
               ))}
             </div>
 
-            {!isSettled && (
+            {isVerificationPending && (
+              <div className="mt-3 flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
+                <Clock className="h-4 w-4 text-orange-600" />
+                <span className="text-sm font-semibold text-orange-700">Payment submitted — awaiting warehouse verification.</span>
+              </div>
+            )}
+
+            {!isSettled && !isVerificationPending && (
               <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
                 <button onClick={onGenerateBill}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B2C66] px-4 py-2 text-xs font-semibold text-white hover:bg-[#092757] transition-colors">
@@ -1280,11 +1258,11 @@ function TabFinancials({ order, intentMap, setIntentMap, onGenerateBill, showInv
             <div className="space-y-1.5 border-t border-b border-slate-100 py-3 text-sm">
               <div className="flex justify-between"><span className="text-slate-600">Delivered Value</span><span>{fmt(billableValue)}</span></div>
               {order.cancelledValue > 0 && <div className="flex justify-between text-red-500"><span>Cancelled / Short</span><span>- {fmt(order.cancelledValue)}</span></div>}
-              <div className="flex justify-between"><span className="text-slate-600">GST (5%)</span><span>{fmt(Math.round(billableValue * 0.05))}</span></div>
+              <div className="flex justify-between"><span className="text-slate-600">GST (5%)</span><span>{fmt(invoiceTotal - billableValue)}</span></div>
             </div>
             <div className="mt-3 flex justify-between text-base font-bold">
               <span>Total Payable</span>
-              <span className="text-[#0B2C66]">{fmt(Math.round(billableValue * 1.05))}</span>
+              <span className="text-[#0B2C66]">{fmt(invoiceTotal > 0 ? invoiceTotal : Math.round(billableValue * 1.05))}</span>
             </div>
             <div className="mt-4 flex gap-3">
               <button onClick={() => setShowInvoice(false)} className="flex-1 rounded-lg border border-slate-200 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Close</button>
@@ -1438,20 +1416,29 @@ function stageDetail(
       ];
     }
 
+    case "Awaiting Invoice": {
+      const invoiceNote = `Delivery confirmed. Warehouse is reviewing and will generate invoice shortly.`;
+      return [
+        { label: "Delivery Time",   value: ts },
+        { label: "Invoice Status",  value: "Awaiting Generation" },
+        { label: "Notes",           value: invoiceNote },
+      ];
+    }
+
     case "Invoice Generated": {
       const invoiceNum = order.invoiceNumber ?? `INV-2026-${1000 + (h % 1000)}`;
       const billAmt = order.deliveredValue > 0 ? order.deliveredValue : order.orderValue;
       return [
         { label: "Invoice Number", value: invoiceNum },
         { label: "Invoice Date",   value: ts },
-        { label: "Invoice Amount", value: `₹${billAmt.toLocaleString("en-IN")}` },
+        { label: "Invoice Amount", value: formatCurrency(billAmt) },
       ];
     }
 
     case "Payment Pending": {
       const dueDate = order.orderDate;
       return [
-        { label: "Pending Amount", value: `₹${order.outstandingAmount.toLocaleString("en-IN")}` },
+        { label: "Pending Amount", value: formatCurrency(order.outstandingAmount) },
         { label: "Due Date",       value: dueDate },
       ];
     }
@@ -1464,7 +1451,7 @@ function stageDetail(
           { label: "Payment Method",  value: p.method },
           { label: "Transaction ID",  value: txnId },
           { label: "Payment Time",    value: p.date },
-          { label: "Amount Paid",     value: `₹${p.amount.toLocaleString("en-IN")}` },
+          { label: "Amount Paid",     value: formatCurrency(p.amount) },
         ];
       }
       const method = MOCK_PAYMENT_METHODS[h % MOCK_PAYMENT_METHODS.length];
@@ -1474,7 +1461,7 @@ function stageDetail(
         { label: "Payment Method",  value: method },
         { label: "Transaction ID",  value: txnId },
         { label: "Payment Time",    value: ts },
-        { label: "Amount Paid",     value: `₹${paid.toLocaleString("en-IN")}` },
+        { label: "Amount Paid",     value: formatCurrency(paid) },
       ];
     }
 
@@ -1546,6 +1533,7 @@ const STAGE_OFFSETS_MIN: Partial<Record<BranchOrderLifecycle, number>> = {
   "Evening Dispatch":     570,
   "In Transit":           360,
   "Delivered":            420,
+  "Awaiting Invoice":     435,
   "Invoice Generated":    450,
   "Payment Pending":      450,
   "Payment Completed":    510,
@@ -1578,10 +1566,12 @@ function workflowStatusToLifecycle(s: string): BranchOrderLifecycle {
     "Evening Dispatch":     "Evening Dispatch",
     "In Transit":           "In Transit",
     "Delivered":            "Delivered",
+    "Awaiting Invoice":     "Awaiting Invoice",
     "Invoice Generated":    "Invoice Generated",
-    "Payment Pending":      "Payment Pending",
-    "Payment Completed":    "Payment Completed",
-    "Order Closed":         "Order Closed",
+    "Payment Pending":                 "Payment Pending",
+    "Payment Verification Pending":    "Payment Verification Pending",
+    "Payment Completed":               "Payment Completed",
+    "Order Closed":                    "Order Closed",
   };
   return (map[s] ?? "Warehouse Review") as BranchOrderLifecycle;
 }
@@ -1726,10 +1716,10 @@ export function MyOrdersPage() {
           priority: o.priority,
           lifecycleStatus,
           orderValue: o.value,
-          deliveredValue: o.status === "Delivered" || o.status === "Invoice Generated" || o.status === "Payment Pending" || o.status === "Payment Completed" || o.status === "Order Closed" ? o.value : 0,
+          deliveredValue: o.invoiceNumber ? getInvoiceSubtotal(o.id) : 0,
           cancelledValue: 0,
-          paidAmount: o.status === "Payment Completed" || o.status === "Order Closed" ? o.value : 0,
-          outstandingAmount: o.status === "Payment Completed" || o.status === "Order Closed" ? 0 : o.value,
+          paidAmount: o.status === "Payment Completed" || o.status === "Order Closed" ? getInvoiceAmount(o.id) : 0,
+          outstandingAmount: getOutstandingAmount(o.id),
           paymentIntent: (o.status === "Payment Completed" || o.status === "Order Closed" ? "Payment Completed" : "Payment Pending") as "Payment Completed" | "Payment Pending",
           invoiceNumber: o.invoiceNumber,
           scenario: "full-delivery" as const,
@@ -1788,8 +1778,8 @@ export function MyOrdersPage() {
     if (status === "Warehouse Review" || status === "Order Placed" || status === "Approved") return "overview";
     if (status === "Added To Production" || status === "Production Started" || status === "Production Completed") return "production";
     if (status === "Ready For Dispatch" || status === "Morning Dispatch" || status === "Evening Dispatch" || status === "In Transit") return "dispatches";
-    if (status === "Delivered") return "deliveries";
-    if (status === "Invoice Generated" || status === "Payment Pending" || status === "Payment Completed" || status === "Order Closed") return "financials";
+    if (status === "Delivered" || status === "Awaiting Invoice") return "deliveries";
+    if (status === "Invoice Generated" || status === "Payment Pending" || status === "Payment Verification Pending" || status === "Payment Completed" || status === "Order Closed") return "financials";
     return "overview";
   }
 
