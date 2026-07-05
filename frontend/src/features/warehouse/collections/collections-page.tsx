@@ -1,54 +1,47 @@
 import { useState, useEffect, useCallback } from "react";
-import { Banknote, AlertCircle, CheckCircle2, DollarSign, X, FileText, Package } from "lucide-react";
+import { Banknote, AlertCircle, CheckCircle2, X, FileText, Package, DollarSign } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
 import { WAREHOUSE_SIDEBAR_LABELS } from "../../../shared/data/warehouse-mock-data";
 import {
   getWorkflowOrders,
-  getOrderDeliveryConfirmation,
-  getProductSellingPrice,
   markPaymentReceived,
+  getInvoiceAmount,
+  getInvoiceSubtotal,
+  getInvoiceLines,
+  getCollections,
+  derivePaymentStatusLabel,
+  deriveOrderStatusLabel,
   type WorkflowOrderLive,
   type WorkflowLifecycleStatus,
 } from "../../../shared/lib/demo-store";
 
-// All statuses that should appear in Collections
+import { formatCurrency } from "../../../shared/utils/format-currency";
+
+// Statuses visible in Collections — "Awaiting Invoice" and "Invoice Generated" are NOT shown here
 const COLLECTION_STATUSES: WorkflowLifecycleStatus[] = [
-  "Invoice Generated",
   "Payment Pending",
   "Payment Verification Pending",
   "Payment Completed",
   "Order Closed",
 ];
 
-type FilterTab = "All" | "Payment Pending" | "Payment Verification Pending" | "Payment Completed" | "Order Closed";
 
-function fmt(v: number) { return `₹${v.toLocaleString("en-IN")}`; }
+type FilterTab = "All" | "Payment Pending" | "Awaiting Verification" | "Completed" | "Closed";
+
+function fmt(v: number) { return formatCurrency(v); }
 
 function paymentStatusBadge(status: WorkflowLifecycleStatus) {
   if (status === "Order Closed")                  return "bg-slate-100 text-slate-600";
   if (status === "Payment Completed")             return "bg-emerald-100 text-emerald-700";
   if (status === "Payment Verification Pending")  return "bg-orange-100 text-orange-700";
-  return "bg-amber-100 text-amber-700"; // Payment Pending / Invoice Generated
+  return "bg-amber-100 text-amber-700";
 }
-
 
 function orderStatusBadge(status: WorkflowLifecycleStatus) {
   if (status === "Order Closed")      return "bg-slate-100 text-slate-600";
   if (status === "Payment Completed") return "bg-emerald-100 text-emerald-700";
-  return "bg-blue-100 text-blue-700"; // Delivered
-}
-
-function derivePaymentStatus(status: WorkflowLifecycleStatus): string {
-  if (status === "Order Closed" || status === "Payment Completed") return "Payment Completed";
-  if (status === "Payment Verification Pending") return "Payment Verification Pending";
-  return "Payment Pending"; // Invoice Generated or Payment Pending
-}
-
-
-function deriveOrderStatus(status: WorkflowLifecycleStatus): string {
-  if (status === "Order Closed") return "Order Closed";
-  return "Delivered";
+  return "bg-blue-100 text-blue-700";
 }
 
 // ── Invoice Preview Modal ────────────────────────────────────────────────────
@@ -60,13 +53,10 @@ function InvoiceModal({
   order: WorkflowOrderLive;
   onClose: () => void;
 }) {
-  // order.value is the pre-tax subtotal (delivered qty × unit price)
-  const subtotal = order.value;
+  const lines = getInvoiceLines(order.id);
+  const subtotal = getInvoiceSubtotal(order.id);
   const gst = Math.round(subtotal * 0.05);
-  const total = subtotal + gst;
-
-  // Get delivered qty per product from delivery confirmation
-  const conf = getOrderDeliveryConfirmation(order.id);
+  const total = getInvoiceAmount(order.id);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -98,7 +88,7 @@ function InvoiceModal({
             <div>
               <div className="text-xs text-slate-400 uppercase tracking-wide">Status</div>
               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${paymentStatusBadge(order.status as WorkflowLifecycleStatus)}`}>
-                {derivePaymentStatus(order.status as WorkflowLifecycleStatus)}
+                {derivePaymentStatusLabel(order.status as WorkflowLifecycleStatus)}
               </span>
             </div>
           </div>
@@ -113,19 +103,15 @@ function InvoiceModal({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {order.items.map((item, i) => {
-                const confLine = conf?.lines.find(l => l.product === item.product);
-                const deliveredQty = confLine
-                  ? confLine.deliveredQty
-                  : (item.approvedQty > 0 ? item.approvedQty : item.orderedQty);
-                const unitPrice = getProductSellingPrice(item.product);
-                const lineTotal = Math.round(deliveredQty * unitPrice);
+              {lines.map((line, i) => {
+                const unitPrice = line.unitPrice;
+                const lineTotal = line.lineTotal;
                 return (
                   <tr key={i}>
-                    <td className="px-3 py-2 text-slate-700">{item.product}</td>
-                    <td className="px-3 py-2 text-right font-medium text-emerald-700">{deliveredQty} {item.unit}</td>
-                    <td className="px-3 py-2 text-right text-slate-500">₹{unitPrice.toLocaleString("en-IN")}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-slate-800">₹{lineTotal.toLocaleString("en-IN")}</td>
+                    <td className="px-3 py-2 text-slate-700">{line.product}</td>
+                    <td className="px-3 py-2 text-right font-medium text-emerald-700">{line.deliveredQty} {line.unit}</td>
+                    <td className="px-3 py-2 text-right text-slate-500">{formatCurrency(unitPrice)}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-slate-800">{formatCurrency(lineTotal)}</td>
                   </tr>
                 );
               })}
@@ -196,28 +182,24 @@ export function CollectionsPage() {
   }
 
   // ── Metrics ──────────────────────────────────────────────────────────────
-  const outstanding = orders
-    .filter(o => o.status === "Invoice Generated" || o.status === "Payment Pending" || o.status === "Payment Verification Pending")
-    .reduce((s, o) => s + Math.round(o.value * 1.05), 0);
-
-  const collected = orders
-    .filter(o => o.status === "Payment Completed" || o.status === "Order Closed")
-    .reduce((s, o) => s + Math.round(o.value * 1.05), 0);
-
-  const pendingPaymentsCount = orders.filter(o => o.status === "Payment Pending").length;
-
-  const closedOrdersCount = orders.filter(o => o.status === "Order Closed").length;
+  const {
+    outstanding,
+    collected,
+    pendingCount: pendingPaymentsCount,
+    verificationCount: awaitingVerificationCount,
+    closedCount: closedOrdersCount,
+  } = getCollections(orders);
 
   // ── Filter logic ─────────────────────────────────────────────────────────
-  const TABS: FilterTab[] = ["All", "Payment Pending", "Payment Verification Pending", "Payment Completed", "Order Closed"];
+  const TABS: FilterTab[] = ["All", "Payment Pending", "Awaiting Verification", "Completed", "Closed"];
 
   const rows = filter === "All"
     ? orders
     : filter === "Payment Pending"
-      ? orders.filter(o => o.status === "Invoice Generated" || o.status === "Payment Pending")
-      : filter === "Payment Verification Pending"
+      ? orders.filter(o => o.status === "Payment Pending")
+      : filter === "Awaiting Verification"
         ? orders.filter(o => o.status === "Payment Verification Pending")
-        : filter === "Payment Completed"
+        : filter === "Completed"
           ? orders.filter(o => o.status === "Payment Completed")
           : orders.filter(o => o.status === "Order Closed");
 
@@ -258,8 +240,8 @@ export function CollectionsPage() {
             Icon: CheckCircle2,
           },
           {
-            label: "Pending Payments",
-            value: pendingPaymentsCount,
+            label: "Awaiting Verification",
+            value: awaitingVerificationCount,
             bg: "bg-[#FFF3CB]",
             color: "text-amber-600",
             Icon: Banknote,
@@ -333,8 +315,8 @@ export function CollectionsPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map(order => {
-                  const isPending = order.status === "Payment Verification Pending";
-                  const isClosed  = order.status === "Order Closed";
+                  const isVerificationPending = order.status === "Payment Verification Pending";
+                  const isClosed = order.status === "Order Closed";
                   const paymentDate = isClosed ? (order.deliveredDate ?? "27 Jun 2026") : null;
 
                   return (
@@ -355,16 +337,16 @@ export function CollectionsPage() {
                         )}
                       </td>
                       <td className="px-5 py-3 text-right font-semibold text-slate-800">
-                        {fmt(Math.round(order.value * 1.05))}
+                        {fmt(getInvoiceAmount(order.id))}
                       </td>
                       <td className="px-5 py-3">
                         <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${paymentStatusBadge(order.status as WorkflowLifecycleStatus)}`}>
-                          {derivePaymentStatus(order.status as WorkflowLifecycleStatus)}
+                          {derivePaymentStatusLabel(order.status as WorkflowLifecycleStatus)}
                         </span>
                       </td>
                       <td className="px-5 py-3">
                         <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${orderStatusBadge(order.status as WorkflowLifecycleStatus)}`}>
-                          {deriveOrderStatus(order.status as WorkflowLifecycleStatus)}
+                          {deriveOrderStatusLabel(order.status as WorkflowLifecycleStatus)}
                         </span>
                       </td>
                       <td className="px-5 py-3 text-xs text-slate-500">
@@ -378,7 +360,10 @@ export function CollectionsPage() {
                           >
                             View Invoice
                           </button>
-                          {isPending && (
+                          {order.status === "Payment Pending" && (
+                            <span className="text-xs text-slate-400 italic">Waiting for Branch Payment</span>
+                          )}
+                          {isVerificationPending && (
                             <button
                               onClick={() => handleMarkPaymentReceived(order.id)}
                               className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors"

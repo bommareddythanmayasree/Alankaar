@@ -10,7 +10,7 @@ import {
   BRANCH_SUMMARY,
   BRANCH_RECENT_ORDERS,
 } from "../../../shared/data/branch-mock-data";
-import { BRANCH_WORKFLOW_KPI, BRANCH_MY_ORDERS } from "../../../shared/data/workflow-mock-data";
+import { BRANCH_WORKFLOW_KPI } from "../../../shared/data/workflow-mock-data";
 import { DEMO_BRANCH_ACCOUNTS } from "../../../shared/data/demo-mock-data";
 import { getCurrentDemoBranchName } from "../../../shared/lib/demo-store";
 import { useNavigate } from "react-router-dom";
@@ -43,8 +43,6 @@ export function BranchDashboardPage() {
   const currentBranchName = getCurrentDemoBranchName();
   const currentBranchAccount = DEMO_BRANCH_ACCOUNTS.find(b => b.name === currentBranchName);
   const BRANCH_NAME = currentBranchName;
-  const branchOrders = BRANCH_MY_ORDERS.filter(o => o.branch === currentBranchName);
-
 
   return (
     <ErpLayout

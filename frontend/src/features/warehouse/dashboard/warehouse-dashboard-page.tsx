@@ -225,8 +225,8 @@ export function WarehouseDashboardPage() {
             { label: "Production",       value: ops.totalProduction,   accent: "bg-white/10" },
             { label: "Morning Dispatch", value: ops.morningDispatch,   accent: "bg-amber-500/20" },
             { label: "Evening Dispatch", value: ops.eveningDispatch,   accent: "bg-indigo-500/20" },
-            { label: "Collections",      value: ops.collections,       accent: "bg-emerald-500/20" },
-            { label: "Outstanding",      value: ops.outstanding,       accent: "bg-orange-500/20" },
+            { label: "Collections",      value: new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(ops.collections)), accent: "bg-emerald-500/20" },
+            { label: "Outstanding",      value: new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(ops.outstanding)),  accent: "bg-orange-500/20" },
             { label: "Urgent Orders",    value: ops.urgentOrders,      accent: "bg-red-500/30" },
           ].map(c => (
             <div key={c.label} className={`rounded-lg ${c.accent} px-3 py-2.5`}>

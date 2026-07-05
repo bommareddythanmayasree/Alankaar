@@ -15,7 +15,6 @@ import {
   type ProductDeliveryStatus,
   type BatchDeliveryConfirmation,
 } from "../../../shared/lib/demo-store";
-import { WORKFLOW_ORDERS } from "../../../shared/data/workflow-mock-data";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function statusBadge(status: ProductDeliveryStatus | "Delivered Successfully") {
@@ -229,12 +228,10 @@ function BatchAction({
 // ── Expandable Order Group ────────────────────────────────────────────────────
 function OrderBatchGroup({
   orderId,
-  branch,
   batches,
   onConfirm,
 }: {
   orderId: string;
-  branch: string;
   batches: DispatchBatch[];
   onConfirm: (batch: DispatchBatch) => void;
 }) {
@@ -384,12 +381,10 @@ function ConfirmedBatchItem({ conf }: { conf: BatchDeliveryConfirmation }) {
 // ── Confirmed order group: groups all batch records belonging to one order ─────
 function ConfirmedOrderGroup({
   orderId,
-  branch,
   orderedValue,
   batches,
 }: {
   orderId: string;
-  branch: string;
   orderedValue: number;
   batches: BatchDeliveryConfirmation[];
 }) {
@@ -446,7 +441,6 @@ export function DeliveryConfirmationPage() {
   const [confirmedBatches, setConfirmedBatches] = useState<BatchDeliveryConfirmation[]>([]);
   const [confirmingBatch, setConfirmingBatch] = useState<DispatchBatch | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [branchByOrder, setBranchByOrder] = useState<Record<string, string>>({});
   const [valueByOrder, setValueByOrder] = useState<Record<string, number>>({});
 
   const load = useCallback(() => {
@@ -462,12 +456,8 @@ export function DeliveryConfirmationPage() {
     setConfirmedBatches(allConfs);
 
     const liveOrders = getWorkflowOrders();
-    const map: Record<string, string> = {};
     const valMap: Record<string, number> = {};
-    // Seed static branch names first so live orders (which may be a subset) override them
-    WORKFLOW_ORDERS.forEach(o => { map[o.id] = o.branch; });
-    liveOrders.forEach(o => { map[o.id] = o.branch; valMap[o.id] = o.value; });
-    setBranchByOrder(map);
+    liveOrders.forEach(o => { valMap[o.id] = o.value; });
     setValueByOrder(valMap);
   }, []);
 
@@ -554,7 +544,6 @@ export function DeliveryConfirmationPage() {
             <OrderBatchGroup
               key={orderId}
               orderId={orderId}
-              branch={branchByOrder[orderId] ?? ""}
               batches={batches}
               onConfirm={setConfirmingBatch}
             />
@@ -591,7 +580,6 @@ export function DeliveryConfirmationPage() {
                 <ConfirmedOrderGroup
                   key={orderId}
                   orderId={orderId}
-                  branch={branchByOrder[orderId] ?? batches[0]?.branch ?? "—"}
                   orderedValue={valueByOrder[orderId] ?? 0}
                   batches={batches}
                 />
