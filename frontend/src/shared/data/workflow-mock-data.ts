@@ -6,7 +6,11 @@
 export type WorkflowStatus =
   | "Order Placed"
   | "Under Review"
+  | "Pending Review"
   | "Approved"
+  | "Partially Approved"
+  | "Rejected"
+  | "Resubmitted"
   | "Added To Production"
   | "Production Started"
   | "Production Completed"
@@ -446,6 +450,65 @@ export const WORKFLOW_ORDERS: WorkflowOrder[] = [
       { product: "Rasgulla",        orderedQty: 8, approvedQty: 8, rejectedQty: 0, unit: "Kg" },
     ],
   },
+  // ── DEMO: Fully Approved (via review) ─────────────────────────────────────
+  {
+    id: "ORD-DEMO-FA",
+    branch: "Benz Circle",
+    date: "Jun 21, 2026",
+    time: "09:00 AM",
+    priority: "Normal",
+    value: 8500,
+    status: "Approved",
+    items: [
+      { product: "Kaju Katli",  orderedQty: 20, approvedQty: 20, rejectedQty: 0,  unit: "Kg" },
+      { product: "Mysore Pak",  orderedQty: 15, approvedQty: 15, rejectedQty: 0,  unit: "Kg" },
+      { product: "Boondi Laddu",orderedQty: 30, approvedQty: 30, rejectedQty: 0,  unit: "Kg" },
+    ],
+  },
+  // ── DEMO: Partially Approved (awaiting branch response) ───────────────────
+  {
+    id: "ORD-DEMO-PA",
+    branch: "Kanuru",
+    date: "Jun 21, 2026",
+    time: "09:15 AM",
+    priority: "Normal",
+    value: 7200,
+    status: "Partially Approved",
+    items: [
+      { product: "Kaju Katli",  orderedQty: 20, approvedQty: 20, rejectedQty: 0,  unit: "Kg" },
+      { product: "Mysore Pak",  orderedQty: 15, approvedQty: 0,  rejectedQty: 15, unit: "Kg" },
+      { product: "Boondi Laddu",orderedQty: 30, approvedQty: 15, rejectedQty: 15, unit: "Kg" },
+    ],
+  },
+  // ── DEMO: Fully Rejected ───────────────────────────────────────────────────
+  {
+    id: "ORD-DEMO-FR",
+    branch: "Poranki",
+    date: "Jun 21, 2026",
+    time: "09:30 AM",
+    priority: "Normal",
+    value: 5400,
+    status: "Rejected",
+    items: [
+      { product: "Dry Fruit Barfi", orderedQty: 10, approvedQty: 0, rejectedQty: 10, unit: "Kg" },
+      { product: "Gulab Jamun",     orderedQty: 12, approvedQty: 0, rejectedQty: 12, unit: "Kg" },
+    ],
+  },
+  // ── DEMO: Resubmitted ─────────────────────────────────────────────────────
+  {
+    id: "ORD-DEMO-RS",
+    branch: "Gannavaram",
+    date: "Jun 21, 2026",
+    time: "09:45 AM",
+    priority: "Normal",
+    value: 6300,
+    status: "Resubmitted",
+    items: [
+      { product: "Kalakand",   orderedQty: 8, approvedQty: 0, rejectedQty: 0, unit: "Kg" },
+      { product: "Rasgulla",   orderedQty: 5, approvedQty: 0, rejectedQty: 0, unit: "Kg" },
+      { product: "Milk Bread", orderedQty: 60, approvedQty: 0, rejectedQty: 0, unit: "Units" },
+    ],
+  },
 ];
 
 // ── Production Requirement aggregation ────────────────────────────────────────
@@ -777,7 +840,11 @@ export const OPS_COMMAND_CENTER = {
 export type BranchOrderLifecycle =
   | "Order Placed"
   | "Warehouse Review"
+  | "Pending Review"
   | "Approved"
+  | "Partially Approved"
+  | "Rejected"
+  | "Resubmitted"
   | "Added To Production"
   | "Production Started"
   | "Production Completed"
@@ -852,7 +919,8 @@ export type BranchOrderDetail = {
 
 // ── All lifecycle steps ───────────────────────────────────────────────────────
 export const ALL_STEPS: BranchOrderLifecycle[] = [
-  "Order Placed", "Warehouse Review", "Approved", "Added To Production",
+  "Order Placed", "Warehouse Review", "Pending Review", "Approved", "Partially Approved",
+  "Rejected", "Resubmitted", "Added To Production",
   "Production Started", "Production Completed", "Ready For Dispatch",
   "Morning Dispatch", "Evening Dispatch", "In Transit",
   "Delivered", "Partially Delivered", "Awaiting Invoice", "Invoice Generated", "Payment Pending",

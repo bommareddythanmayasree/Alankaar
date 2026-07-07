@@ -539,7 +539,7 @@ export const BRANCH_HISTORY_ORDERS = [
   { orderId: "ORD-1275", branchName: "Gandhi Nagar", date: "May 20, 2026", items: 10, amount: 9880, status: "Delivered" as const, deliveryDate: "May 22, 2026" },
 ];
 
-export type BranchOrderStatus = "Pending" | "Approved" | "In Transit" | "Delivered";
+export type BranchOrderStatus = "Pending" | "Pending Approval" | "Approved" | "Partially Approved" | "Rejected" | "Resubmitted" | "In Transit" | "Delivered";
 
 export const BRANCH_HISTORY_SUMMARY = {
   all: 57,

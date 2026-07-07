@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Zap, CheckCircle2, Clock, ChevronRight,
-  GitBranch, AlertTriangle,
-  BarChart3, Plus, Package,
+  GitBranch, AlertTriangle, X,
+  BarChart3, Plus, Package, ThumbsUp, ThumbsDown, FileText,
 } from "lucide-react";
 import { ErpLayout } from "../../shared/erp-layout";
 import { WAREHOUSE_NAV, buildSidebar } from "../../../app/navigation/sidebars";
@@ -21,12 +21,15 @@ import {
   getDispatchBatchesForOrder,
   getUnassignedOrderProducts,
   markBatchInTransit,
+  submitOrderReview,
+  getReviewLog,
   type WorkflowLifecycleStatus,
   type WorkflowOrderLive,
   type DriverRecord,
   type VehicleRecord,
   type DispatchBatch,
   type DispatchBatchProduct,
+  type OrderReviewItem,
 } from "../../../shared/lib/demo-store";
 
 // Seed localStorage from static mock data on first load
@@ -51,53 +54,65 @@ const STATIC_SEED: WorkflowOrderLive[] = WORKFLOW_ORDERS.map(o => ({
 
 // ── Workflow Steps ────────────────────────────────────────────────────────────
 const WORKFLOW_STEPS: WorkflowLifecycleStatus[] = [
-  "Order Placed", "Under Review", "Approved", "Added To Production",
-  "Production Started", "Production Completed", "Ready For Dispatch",
+  "Order Placed", "Under Review", "Pending Review",
+  "Approved", "Partially Approved", "Rejected", "Resubmitted",
+  "Added To Production", "Production Started", "Production Completed", "Ready For Dispatch",
   "Morning Dispatch", "Evening Dispatch", "In Transit", "Delivered",
   "Partially Delivered", "Awaiting Invoice", "Invoice Generated",
   "Payment Pending", "Payment Completed", "Order Closed",
 ];
 
-// Map WorkflowLifecycleStatus → next allowed status (for non-approve/reject advance)
+// Map WorkflowLifecycleStatus → next allowed status
 const NEXT_STATUS: Partial<Record<WorkflowLifecycleStatus, WorkflowLifecycleStatus>> = {
   "Order Placed":        "Under Review",
+  "Resubmitted":         "Under Review",
   "Approved":            "Added To Production",
   "Added To Production": "Production Started",
   "Production Started":  "Production Completed",
   "Production Completed":"Ready For Dispatch",
-  // "Ready For Dispatch" → handled via multi-batch dispatch modal
-  // "Delivered" → "Awaiting Invoice" via Delivery Tracking batch confirmation
-  // "Awaiting Invoice" → "Invoice Generated" → "Payment Pending" via Invoice Generation page
-  // "Payment Pending" → "Payment Completed" → auto "Order Closed" via Collections page
 };
 
-// Statuses that show Approve / Reject instead of (or alongside) Advance
-const VERIFICATION_STATUSES: WorkflowLifecycleStatus[] = ["Order Placed", "Under Review"];
+// Statuses where warehouse reviews (shows Review Panel instead of simple approve/reject)
+const REVIEW_STATUSES: WorkflowLifecycleStatus[] = ["Under Review", "Resubmitted"];
+// Statuses where we show "Move to Under Review" button
+const ADVANCE_TO_REVIEW_STATUSES: WorkflowLifecycleStatus[] = ["Order Placed"];
 
-// Dispatch slot options
+const REJECTION_REASONS = [
+  "Out of Stock",
+  "Production Capacity Full",
+  "Raw Material Shortage",
+  "Seasonal Product",
+  "Factory Closed",
+  "Holiday",
+  "Other",
+];
+
 const DISPATCH_SLOT_OPTIONS: Array<"Morning" | "Evening"> = ["Morning", "Evening"];
 
 function stepIndex(s: WorkflowLifecycleStatus) { return WORKFLOW_STEPS.indexOf(s); }
 
 function statusColors(s: WorkflowLifecycleStatus) {
-  if (s === "Order Closed")         return { card: "border-slate-300 bg-slate-50/60",     badge: "bg-slate-200 text-slate-700",     dot: "bg-slate-500" };
-  if (s === "Rejected")             return { card: "border-red-200 bg-red-50/40",          badge: "bg-red-100 text-red-700",          dot: "bg-red-500" };
-  if (s === "Payment Completed")    return { card: "border-emerald-200 bg-emerald-50/40", badge: "bg-emerald-100 text-emerald-700", dot: "bg-emerald-600" };
-  if (s === "Payment Pending")      return { card: "border-orange-200 bg-orange-50/30",   badge: "bg-orange-100 text-orange-700",   dot: "bg-orange-500" };
-  if (s === "Invoice Generated")    return { card: "border-violet-200 bg-violet-50/30",   badge: "bg-violet-100 text-violet-700",   dot: "bg-violet-500" };
-  if (s === "Awaiting Invoice")     return { card: "border-orange-200 bg-orange-50/30",   badge: "bg-orange-100 text-orange-700",   dot: "bg-orange-500" };
-  if (s === "Delivered")            return { card: "border-teal-200 bg-teal-50/30",       badge: "bg-teal-100 text-teal-700",       dot: "bg-teal-500" };
-  if (s === "Partially Delivered")  return { card: "border-amber-200 bg-amber-50/30",     badge: "bg-amber-100 text-amber-700",     dot: "bg-amber-500" };
-  if (s === "In Transit")           return { card: "border-sky-200 bg-sky-50/30",         badge: "bg-sky-100 text-sky-700",         dot: "bg-sky-500" };
-  if (s === "Evening Dispatch")     return { card: "border-indigo-200 bg-indigo-50/30",   badge: "bg-indigo-100 text-indigo-700",   dot: "bg-indigo-500" };
-  if (s === "Morning Dispatch")     return { card: "border-amber-200 bg-amber-50/30",     badge: "bg-amber-100 text-amber-700",     dot: "bg-amber-500" };
-  if (s === "Ready For Dispatch")   return { card: "border-emerald-200 bg-emerald-50/40", badge: "bg-emerald-100 text-emerald-700", dot: "bg-emerald-500" };
-  if (s === "Production Completed") return { card: "border-cyan-200 bg-cyan-50/30",       badge: "bg-cyan-100 text-cyan-700",       dot: "bg-cyan-500" };
-  if (s === "Production Started")   return { card: "border-blue-200 bg-blue-50/30",       badge: "bg-blue-100 text-blue-700",       dot: "bg-blue-500" };
-  if (s === "Added To Production")  return { card: "border-indigo-200 bg-indigo-50/30",   badge: "bg-indigo-100 text-indigo-700",   dot: "bg-indigo-500" };
-  if (s === "Approved")             return { card: "border-teal-200 bg-teal-50/30",       badge: "bg-teal-100 text-teal-700",       dot: "bg-teal-500" };
-  if (s === "Under Review")         return { card: "border-amber-200 bg-amber-50/30",     badge: "bg-amber-100 text-amber-700",     dot: "bg-amber-500" };
-  return { card: "border-slate-200 bg-white", badge: "bg-slate-100 text-slate-600", dot: "bg-slate-400" };
+  if (s === "Order Closed")           return { card: "border-slate-300 bg-slate-50/60",     badge: "bg-slate-200 text-slate-700" };
+  if (s === "Rejected")               return { card: "border-red-200 bg-red-50/40",          badge: "bg-red-100 text-red-700" };
+  if (s === "Partially Approved")     return { card: "border-amber-200 bg-amber-50/30",     badge: "bg-amber-100 text-amber-700" };
+  if (s === "Resubmitted")            return { card: "border-violet-200 bg-violet-50/30",   badge: "bg-violet-100 text-violet-700" };
+  if (s === "Payment Completed")      return { card: "border-emerald-200 bg-emerald-50/40", badge: "bg-emerald-100 text-emerald-700" };
+  if (s === "Payment Pending")        return { card: "border-orange-200 bg-orange-50/30",   badge: "bg-orange-100 text-orange-700" };
+  if (s === "Invoice Generated")      return { card: "border-violet-200 bg-violet-50/30",   badge: "bg-violet-100 text-violet-700" };
+  if (s === "Awaiting Invoice")       return { card: "border-orange-200 bg-orange-50/30",   badge: "bg-orange-100 text-orange-700" };
+  if (s === "Delivered")              return { card: "border-teal-200 bg-teal-50/30",       badge: "bg-teal-100 text-teal-700" };
+  if (s === "Partially Delivered")    return { card: "border-amber-200 bg-amber-50/30",     badge: "bg-amber-100 text-amber-700" };
+  if (s === "In Transit")             return { card: "border-sky-200 bg-sky-50/30",         badge: "bg-sky-100 text-sky-700" };
+  if (s === "Evening Dispatch")       return { card: "border-indigo-200 bg-indigo-50/30",   badge: "bg-indigo-100 text-indigo-700" };
+  if (s === "Morning Dispatch")       return { card: "border-amber-200 bg-amber-50/30",     badge: "bg-amber-100 text-amber-700" };
+  if (s === "Ready For Dispatch")     return { card: "border-emerald-200 bg-emerald-50/40", badge: "bg-emerald-100 text-emerald-700" };
+  if (s === "Production Completed")   return { card: "border-cyan-200 bg-cyan-50/30",       badge: "bg-cyan-100 text-cyan-700" };
+  if (s === "Production Started")     return { card: "border-blue-200 bg-blue-50/30",       badge: "bg-blue-100 text-blue-700" };
+  if (s === "Added To Production")    return { card: "border-indigo-200 bg-indigo-50/30",   badge: "bg-indigo-100 text-indigo-700" };
+  if (s === "Approved")               return { card: "border-teal-200 bg-teal-50/30",       badge: "bg-teal-100 text-teal-700" };
+  if (s === "Pending Review")         return { card: "border-amber-200 bg-amber-50/30",     badge: "bg-amber-100 text-amber-700" };
+  if (s === "Under Review")           return { card: "border-amber-200 bg-amber-50/30",     badge: "bg-amber-100 text-amber-700" };
+  return { card: "border-slate-200 bg-white", badge: "bg-slate-100 text-slate-600" };
 }
 
 function priorityBadge(p: string) {
@@ -109,6 +124,7 @@ function priorityBadge(p: string) {
 function getActionLabel(status: WorkflowLifecycleStatus): string {
   const map: Partial<Record<WorkflowLifecycleStatus, string>> = {
     "Order Placed":         "Move to Under Review",
+    "Resubmitted":          "Move to Under Review",
     "Approved":             "Add To Production",
     "Added To Production":  "Start Production",
     "Production Started":   "Mark Production Completed",
@@ -117,12 +133,37 @@ function getActionLabel(status: WorkflowLifecycleStatus): string {
   return map[status] ?? "";
 }
 
+// ── InfoBox helper ────────────────────────────────────────────────────────────
+function InfoBox({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className="rounded-lg bg-slate-50 px-3 py-2.5">
+      <p className="text-[10px] uppercase tracking-wide text-slate-400">{label}</p>
+      <p className={`mt-0.5 text-sm font-semibold ${highlight ? "text-red-600" : "text-slate-800"}`}>{value}</p>
+    </div>
+  );
+}
+
 // ── Mini Timeline component ───────────────────────────────────────────────────
 function WorkflowTimeline({ currentStatus }: { currentStatus: WorkflowLifecycleStatus }) {
-  const current = stepIndex(currentStatus);
+  // Use a simplified linear display (skip branching statuses from main flow)
+  const mainSteps: WorkflowLifecycleStatus[] = [
+    "Order Placed", "Under Review", "Approved", "Added To Production",
+    "Production Started", "Production Completed", "Ready For Dispatch",
+    "Morning Dispatch", "Evening Dispatch", "In Transit", "Delivered",
+    "Awaiting Invoice", "Invoice Generated", "Payment Pending", "Payment Completed", "Order Closed",
+  ];
+  // For special statuses show where they fit
+  const effectiveStatus: WorkflowLifecycleStatus =
+    currentStatus === "Pending Review" ? "Under Review"
+    : currentStatus === "Partially Approved" || currentStatus === "Resubmitted" ? "Under Review"
+    : currentStatus === "Rejected" ? "Under Review"
+    : currentStatus === "Partially Delivered" ? "Delivered"
+    : currentStatus === "Payment Verification Pending" ? "Payment Pending"
+    : currentStatus;
+  const current = mainSteps.indexOf(effectiveStatus);
   return (
     <div className="flex items-center gap-0 overflow-x-auto pb-1">
-      {WORKFLOW_STEPS.map((step, i) => {
+      {mainSteps.map((step, i) => {
         const done = i <= current;
         const isCurrent = i === current;
         return (
@@ -133,7 +174,7 @@ function WorkflowTimeline({ currentStatus }: { currentStatus: WorkflowLifecycleS
               </div>
               <span className={`mt-1 whitespace-nowrap text-center text-[9px] leading-tight ${done ? "font-semibold text-slate-700" : "text-slate-400"}`} style={{ maxWidth: 64 }}>{step}</span>
             </div>
-            {i < WORKFLOW_STEPS.length - 1 && (
+            {i < mainSteps.length - 1 && (
               <div className={`mb-4 h-0.5 w-8 flex-shrink-0 ${i < current ? "bg-emerald-400" : "bg-slate-200"}`} />
             )}
           </div>
@@ -143,13 +184,299 @@ function WorkflowTimeline({ currentStatus }: { currentStatus: WorkflowLifecycleS
   );
 }
 
+// ── Reject entire order modal ─────────────────────────────────────────────────
+function RejectOrderModal({
+  orderId,
+  onConfirm,
+  onClose,
+}: {
+  orderId: string;
+  onConfirm: (reason: string) => void;
+  onClose: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [custom, setCustom] = useState("");
+  const finalReason = reason === "Other" ? custom.trim() : reason;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <div className="mb-4 flex items-start justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-800">Reject Entire Order</h3>
+            <p className="mt-0.5 text-xs text-slate-500">Order {orderId} — this cannot be undone</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="space-y-3">
+          <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Rejection Reason <span className="text-red-500">*</span></label>
+          <div className="grid grid-cols-2 gap-2">
+            {REJECTION_REASONS.map(r => (
+              <button key={r} onClick={() => setReason(r)}
+                className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors ${reason === r ? "border-red-400 bg-red-50 text-red-700 font-semibold" : "border-slate-200 hover:bg-slate-50 text-slate-700"}`}>
+                {r}
+              </button>
+            ))}
+          </div>
+          {reason === "Other" && (
+            <textarea
+              value={custom}
+              onChange={e => setCustom(e.target.value)}
+              placeholder="Describe the reason..."
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-400 h-20 resize-none"
+            />
+          )}
+        </div>
+        <div className="mt-5 flex gap-3">
+          <button onClick={onClose} className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
+          <button
+            disabled={!finalReason}
+            onClick={() => finalReason && onConfirm(finalReason)}
+            className="flex-1 rounded-lg bg-red-600 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-40 transition-colors">
+            Reject Order
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Review Panel ──────────────────────────────────────────────────────────────
+type ReviewState = {
+  decision: "Approved" | "Rejected";
+  approvedQty: number;
+  rejectionReason: string;
+};
+
+function ReviewPanel({
+  order,
+  onSubmit,
+  onFullReject,
+}: {
+  order: WorkflowOrderLive;
+  onSubmit: (items: OrderReviewItem[]) => void;
+  onFullReject: () => void;
+}) {
+  const [rows, setRows] = useState<ReviewState[]>(() =>
+    order.items.map(i => ({ decision: "Approved", approvedQty: i.orderedQty, rejectionReason: "" }))
+  );
+
+  function setDecision(idx: number, decision: "Approved" | "Rejected") {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, decision } : r));
+  }
+  function setQty(idx: number, qty: number) {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, approvedQty: Math.max(1, qty) } : r));
+  }
+  function setRejectionReason(idx: number, reason: string) {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, rejectionReason: reason } : r));
+  }
+
+  const approvedCount = rows.filter(r => r.decision === "Approved").length;
+  const rejectedCount = rows.filter(r => r.decision === "Rejected").length;
+
+  const outcome = rejectedCount === 0 ? "Full Approval"
+    : approvedCount === 0 ? "Full Rejection"
+    : "Partial Approval";
+
+  const outcomeColor = outcome === "Full Approval" ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+    : outcome === "Full Rejection" ? "text-red-700 bg-red-50 border-red-200"
+    : "text-amber-700 bg-amber-50 border-amber-200";
+
+  function canSubmit() {
+    return rows.every(r =>
+      r.decision === "Approved" || (r.decision === "Rejected" && r.rejectionReason.trim().length > 0)
+    );
+  }
+
+  function handleSubmit() {
+    if (!canSubmit()) return;
+    const items: OrderReviewItem[] = order.items.map((item, idx) => ({
+      product: item.product,
+      unit: item.unit,
+      orderedQty: item.orderedQty,
+      decision: rows[idx].decision,
+      approvedQty: rows[idx].decision === "Approved" ? rows[idx].approvedQty : 0,
+      rejectionReason: rows[idx].decision === "Rejected" ? rows[idx].rejectionReason : undefined,
+    }));
+    onSubmit(items);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${outcomeColor}`}>
+          <span className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${outcomeColor}`}>
+            Outcome: {outcome}
+          </span>
+          <span className="text-xs text-slate-400">
+            ({approvedCount} approved · {rejectedCount} rejected)
+          </span>
+        </div>
+        <button onClick={onFullReject}
+          className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors">
+          <ThumbsDown className="h-3.5 w-3.5" />
+          Reject Entire Order
+        </button>
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-slate-200">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Product</th>
+              <th className="px-4 py-3 text-right">Ordered</th>
+              <th className="px-4 py-3 text-center">Decision</th>
+              <th className="px-4 py-3 text-right">Approved Qty</th>
+              <th className="px-4 py-3">Rejection Reason</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {order.items.map((item, idx) => {
+              const row = rows[idx];
+              const isRejected = row.decision === "Rejected";
+              return (
+                <tr key={item.product} className={isRejected ? "bg-red-50/40" : ""}>
+                  <td className="px-4 py-3 font-medium text-slate-800">{item.product}</td>
+                  <td className="px-4 py-3 text-right text-slate-600">{item.orderedQty} {item.unit}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-center gap-1">
+                      <button onClick={() => setDecision(idx, "Approved")}
+                        className={`flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${!isRejected ? "border-emerald-400 bg-emerald-50 text-emerald-700" : "border-slate-200 text-slate-500 hover:bg-slate-50"}`}>
+                        <ThumbsUp className="h-3 w-3" />Approve
+                      </button>
+                      <button onClick={() => setDecision(idx, "Rejected")}
+                        className={`flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${isRejected ? "border-red-400 bg-red-50 text-red-700" : "border-slate-200 text-slate-500 hover:bg-slate-50"}`}>
+                        <ThumbsDown className="h-3 w-3" />Reject
+                      </button>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {!isRejected ? (
+                      <input
+                        type="number"
+                        min={1}
+                        max={item.orderedQty}
+                        value={row.approvedQty}
+                        onChange={e => setQty(idx, Number(e.target.value))}
+                        className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-[#0B2C66]"
+                      />
+                    ) : (
+                      <span className="text-xs text-red-400 font-medium">0</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {isRejected ? (
+                      <select
+                        value={row.rejectionReason}
+                        onChange={e => setRejectionReason(idx, e.target.value)}
+                        className={`w-full rounded-lg border px-2 py-1.5 text-sm outline-none focus:border-red-400 ${!row.rejectionReason ? "border-red-300 bg-red-50" : "border-slate-200"}`}>
+                        <option value="">Select reason *</option>
+                        {REJECTION_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-slate-300">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {!canSubmit() && (
+        <p className="text-xs text-red-600 flex items-center gap-1.5">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          All rejected products must have a reason before submitting.
+        </p>
+      )}
+
+      <div className="flex gap-3 pt-2">
+        <button
+          disabled={!canSubmit()}
+          onClick={handleSubmit}
+          className="flex items-center gap-2 rounded-lg bg-[#0B2C66] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0a2559] disabled:opacity-40 transition-colors">
+          <FileText className="h-4 w-4" />
+          Submit Review
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Review Log component ──────────────────────────────────────────────────────
+function ReviewLog({ orderId }: { orderId: string }) {
+  const entries = getReviewLog(orderId);
+
+  // Seed demo log entries for demo orders so client demo looks populated
+  const demoLogs: Record<string, Array<{ timestamp: string; actor: "Warehouse" | "Branch"; action: string; detail?: string }>> = {
+    "ORD-DEMO-PA": [
+      { timestamp: "Jun 21, 2026, 09:16 AM", actor: "Warehouse", action: "Reduced Boondi Laddu quantity", detail: "30 Kg → 15 Kg" },
+      { timestamp: "Jun 21, 2026, 09:15 AM", actor: "Warehouse", action: "Rejected Mysore Pak", detail: "Out of Stock" },
+      { timestamp: "Jun 21, 2026, 09:15 AM", actor: "Warehouse", action: "Approved Kaju Katli" },
+    ],
+    "ORD-DEMO-FR": [
+      { timestamp: "Jun 21, 2026, 09:32 AM", actor: "Warehouse", action: "Rejected Gulab Jamun", detail: "Production Capacity Full" },
+      { timestamp: "Jun 21, 2026, 09:31 AM", actor: "Warehouse", action: "Rejected Dry Fruit Barfi", detail: "Factory Closed" },
+    ],
+    "ORD-DEMO-FA": [
+      { timestamp: "Jun 21, 2026, 09:02 AM", actor: "Warehouse", action: "Approved Boondi Laddu" },
+      { timestamp: "Jun 21, 2026, 09:02 AM", actor: "Warehouse", action: "Approved Mysore Pak" },
+      { timestamp: "Jun 21, 2026, 09:01 AM", actor: "Warehouse", action: "Approved Kaju Katli" },
+    ],
+    "ORD-DEMO-RS": [
+      { timestamp: "Jun 21, 2026, 09:50 AM", actor: "Branch", action: "Resubmitted Order", detail: "Branch revised and resubmitted for warehouse review" },
+      { timestamp: "Jun 21, 2026, 09:48 AM", actor: "Branch", action: "Rejected Accept Changes" },
+      { timestamp: "Jun 21, 2026, 09:47 AM", actor: "Warehouse", action: "Rejected Milk Bread", detail: "Production Capacity Full" },
+      { timestamp: "Jun 21, 2026, 09:46 AM", actor: "Warehouse", action: "Approved Rasgulla" },
+      { timestamp: "Jun 21, 2026, 09:46 AM", actor: "Warehouse", action: "Approved Kalakand" },
+    ],
+  };
+
+  const displayEntries = entries.length > 0 ? entries : (demoLogs[orderId] ?? []);
+
+  if (displayEntries.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-slate-400">
+        <FileText className="mb-2 h-7 w-7" />
+        <p className="text-sm text-slate-500">No review activity yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {displayEntries.map((entry, i) => (
+        <div key={i} className="flex gap-3 rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 text-sm">
+          <div className="flex flex-col items-center gap-1 pt-0.5">
+            <div className={`h-2 w-2 rounded-full flex-shrink-0 ${entry.actor === "Warehouse" ? "bg-[#0B2C66]" : "bg-amber-500"}`} />
+            {i < displayEntries.length - 1 && <div className="w-0.5 flex-1 bg-slate-200" />}
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${entry.actor === "Warehouse" ? "bg-[#0B2C66]/10 text-[#0B2C66]" : "bg-amber-100 text-amber-700"}`}>
+                {entry.actor}
+              </span>
+              <span className="text-slate-700 font-medium">{entry.action}</span>
+            </div>
+            {entry.detail && <p className="mt-0.5 text-xs text-slate-500">{entry.detail}</p>}
+            <p className="mt-1 text-[10px] text-slate-400">{entry.timestamp}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export function OrdersWorkflowPage() {
   const [orders, setOrders] = useState<WorkflowOrderLive[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"request" | "approval" | "batches">("request");
+  const [activeTab, setActiveTab] = useState<"request" | "review" | "batches" | "log">("request");
   const [statusFilter, setStatusFilter] = useState<"All" | WorkflowLifecycleStatus>("All");
   const [toast, setToast] = useState<string | null>(null);
+
+  // Reject order modal
+  const [rejectModal, setRejectModal] = useState(false);
 
   // Batch dispatch modal state
   const [batchModal, setBatchModal] = useState<boolean>(false);
@@ -158,10 +485,7 @@ export function OrdersWorkflowPage() {
   const [selectedVehicle, setSelectedVehicle] = useState<string>("");
   const [drivers, setDrivers] = useState<DriverRecord[]>([]);
   const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
-  // Product selection for the batch
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
-
-  // Dispatch batches for selected order
   const [batches, setBatches] = useState<DispatchBatch[]>([]);
 
   const loadOrders = useCallback(() => {
@@ -191,14 +515,10 @@ export function OrdersWorkflowPage() {
   const counts: Record<string, number> = {};
   orders.forEach(o => { counts[o.status] = (counts[o.status] ?? 0) + 1; });
 
-  // Load batches for selected order
   useEffect(() => {
-    if (selected) {
-      setBatches(getDispatchBatchesForOrder(selected.id));
-    }
+    if (selected) setBatches(getDispatchBatchesForOrder(selected.id));
   }, [selected, orders]);
 
-  // Also refresh batches on storage events
   const loadBatches = useCallback(() => {
     if (selected) setBatches(getDispatchBatchesForOrder(selected.id));
   }, [selected]);
@@ -212,20 +532,7 @@ export function OrdersWorkflowPage() {
     setTimeout(() => setToast(null), 3000);
   }
 
-  function handleApprove() {
-    if (!selected) return;
-    updateWorkflowOrderStatus(selected.id, "Approved");
-    showToast(`${selected.id} → Approved`);
-    loadOrders();
-  }
-
-  function handleReject() {
-    if (!selected) return;
-    updateWorkflowOrderStatus(selected.id, "Rejected");
-    showToast(`${selected.id} → Rejected`);
-    loadOrders();
-  }
-
+  // Handle "Move to Under Review" or other simple advances
   function handleAdvance() {
     if (!selected) return;
     const next = NEXT_STATUS[selected.status];
@@ -235,6 +542,36 @@ export function OrdersWorkflowPage() {
     loadOrders();
   }
 
+  // Handle full approval (from review panel — all products approved)
+  function handleReviewSubmit(items: OrderReviewItem[]) {
+    if (!selected) return;
+    submitOrderReview(selected.id, items);
+    showToast(`${selected.id} → Review Submitted`);
+    loadOrders();
+    setActiveTab("log");
+  }
+
+  // Handle full rejection via modal
+  function handleFullReject(reason: string) {
+    if (!selected) return;
+    submitOrderReview(
+      selected.id,
+      selected.items.map(item => ({
+        product: item.product,
+        unit: item.unit,
+        orderedQty: item.orderedQty,
+        decision: "Rejected" as const,
+        approvedQty: 0,
+        rejectionReason: reason,
+      })),
+      reason,
+    );
+    setRejectModal(false);
+    showToast(`${selected.id} → Rejected`);
+    loadOrders();
+    setActiveTab("log");
+  }
+
   function openBatchModal() {
     if (!selected) return;
     setDrivers(getDriverPool().filter(d => d.status === "Available"));
@@ -242,7 +579,6 @@ export function OrdersWorkflowPage() {
     setSelectedDriver("");
     setSelectedVehicle("");
     setBatchSlot("Morning");
-    // Only pre-select products NOT already assigned to another batch
     const unassigned = getUnassignedOrderProducts(selected.id, selected.items);
     setSelectedProducts(new Set(unassigned.map(i => i.product)));
     setBatchModal(true);
@@ -268,10 +604,7 @@ export function OrdersWorkflowPage() {
   }
 
   function handleAdvanceBatch(batchId: string, currentStatus: DispatchBatch["status"]) {
-    // Batches can only advance to "In Transit" from here.
-    // "Delivered" is set exclusively via the Delivery Tracking confirm-delivery workflow.
     if (currentStatus !== "Scheduled") return;
-    // markBatchInTransit updates the batch AND derives the order status — no direct order mutation.
     markBatchInTransit(batchId);
     showToast(`Batch → In Transit`);
     setBatches(getDispatchBatchesForOrder(selected!.id));
@@ -288,11 +621,13 @@ export function OrdersWorkflowPage() {
 
   if (!selected) return null;
 
-  const actionLabel = getActionLabel(selected.status);
-  const isVerificationStatus = VERIFICATION_STATUSES.includes(selected.status);
-  const canAdvance = !isVerificationStatus && !!NEXT_STATUS[selected.status];
+  const isReviewStatus = REVIEW_STATUSES.includes(selected.status);
+  const isAdvanceToReview = ADVANCE_TO_REVIEW_STATUSES.includes(selected.status);
+  const canAdvance = !isReviewStatus && !!NEXT_STATUS[selected.status];
   const isReadyForDispatch = selected.status === "Ready For Dispatch";
   const isRejected = selected.status === "Rejected";
+  const isPartiallyApproved = selected.status === "Partially Approved";
+  const actionLabel = getActionLabel(selected.status);
 
   return (
     <ErpLayout sidebarItems={buildSidebar(WAREHOUSE_NAV, [...WAREHOUSE_SIDEBAR_LABELS], "Orders Workflow")}>
@@ -302,11 +637,17 @@ export function OrdersWorkflowPage() {
         </div>
       )}
 
+      {rejectModal && selected && (
+        <RejectOrderModal
+          orderId={selected.id}
+          onConfirm={handleFullReject}
+          onClose={() => setRejectModal(false)}
+        />
+      )}
+
       <div className="mb-5">
         <h2 className="text-2xl font-semibold text-slate-800">Orders Workflow</h2>
-        <p className="mt-1 text-slate-500">
-          Master control — advance orders through the full lifecycle. Changes sync to all pages instantly.
-        </p>
+        <p className="mt-1 text-slate-500">Master control — advance orders through the full lifecycle.</p>
       </div>
 
       {/* Pipeline strip */}
@@ -314,18 +655,17 @@ export function OrdersWorkflowPage() {
         {[
           { label: "Order Placed",         color: "text-slate-600",   bg: "bg-slate-50" },
           { label: "Under Review",         color: "text-amber-700",   bg: "bg-amber-50" },
+          { label: "Partially Approved",   color: "text-amber-700",   bg: "bg-amber-50" },
+          { label: "Resubmitted",          color: "text-violet-700",  bg: "bg-violet-50" },
           { label: "Approved",             color: "text-teal-700",    bg: "bg-teal-50" },
           { label: "Rejected",             color: "text-red-700",     bg: "bg-red-50" },
           { label: "Added To Production",  color: "text-indigo-700",  bg: "bg-indigo-50" },
           { label: "Production Started",   color: "text-blue-700",    bg: "bg-blue-50" },
           { label: "Production Completed", color: "text-cyan-700",    bg: "bg-cyan-50" },
           { label: "Ready For Dispatch",   color: "text-emerald-700", bg: "bg-emerald-50" },
-          { label: "Morning Dispatch",     color: "text-amber-700",   bg: "bg-amber-50" },
-          { label: "Evening Dispatch",     color: "text-indigo-700",  bg: "bg-indigo-50" },
           { label: "In Transit",           color: "text-sky-700",     bg: "bg-sky-50" },
           { label: "Delivered",            color: "text-teal-700",    bg: "bg-teal-50" },
-          { label: "Partially Delivered", color: "text-amber-700",   bg: "bg-amber-50" },
-          { label: "Invoice Generated",   color: "text-violet-700",  bg: "bg-violet-50" },
+          { label: "Invoice Generated",    color: "text-violet-700",  bg: "bg-violet-50" },
           { label: "Payment Pending",      color: "text-orange-700",  bg: "bg-orange-50" },
           { label: "Payment Completed",    color: "text-emerald-700", bg: "bg-emerald-50" },
           { label: "Order Closed",         color: "text-slate-600",   bg: "bg-slate-100" },
@@ -388,9 +728,9 @@ export function OrdersWorkflowPage() {
         {/* Detail panel */}
         <div className="rounded-xl border border-slate-200 bg-white xl:col-span-8">
           <div className="border-b border-slate-100 px-6 py-4">
-            <div className="flex items-start justify-between">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <span className="font-mono text-lg font-bold text-[#0B2C66]">{selected.id}</span>
                   <span className={priorityBadge(selected.priority)}>
                     {selected.priority === "Urgent" && <Zap className="h-3 w-3" />}
@@ -405,36 +745,29 @@ export function OrdersWorkflowPage() {
                 </div>
               </div>
               {/* Action buttons */}
-              {isVerificationStatus && !isRejected && (
-                <div className="flex gap-2">
-                  <button onClick={handleApprove}
-                    className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors">
-                    <CheckCircle2 className="h-4 w-4" />
-                    Approve
+              <div className="flex flex-wrap gap-2">
+                {isReviewStatus && (
+                  <button onClick={() => setActiveTab("review")}
+                    className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 transition-colors">
+                    <BarChart3 className="h-4 w-4" />
+                    Review Order
                   </button>
-                  <button onClick={handleReject}
-                    className="flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-600 transition-colors">
-                    <AlertTriangle className="h-4 w-4" />
-                    Reject
-                  </button>
-                </div>
-              )}
-              {canAdvance && selected.status !== "Order Closed" && (
-                <div className="relative">
+                )}
+                {canAdvance && !isReadyForDispatch && (
                   <button onClick={handleAdvance}
                     className="flex items-center gap-2 rounded-lg bg-[#0B2C66] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0a2559] transition-colors">
                     <ChevronRight className="h-4 w-4" />
                     {actionLabel}
                   </button>
-                </div>
-              )}
-              {isReadyForDispatch && (
-                <button onClick={openBatchModal}
-                  className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors">
-                  <Plus className="h-4 w-4" />
-                  Add Dispatch Batch
-                </button>
-              )}
+                )}
+                {isReadyForDispatch && (
+                  <button onClick={openBatchModal}
+                    className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors">
+                    <Plus className="h-4 w-4" />
+                    Add Dispatch Batch
+                  </button>
+                )}
+              </div>
             </div>
             <div className="mt-4">
               <WorkflowTimeline currentStatus={selected.status} />
@@ -443,15 +776,19 @@ export function OrdersWorkflowPage() {
 
           {/* Tabs */}
           <div className="flex border-b border-slate-100">
-            {(["request", "approval", "batches"] as const).map(tab => (
+            {(["request", "review", "batches", "log"] as const).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                 className={`flex-1 py-3 text-sm font-semibold capitalize transition-colors ${activeTab === tab ? "border-b-2 border-[#0B2C66] text-[#0B2C66]" : "text-slate-500 hover:text-slate-700"}`}>
-                {tab === "request" ? "Order Request" : tab === "approval" ? "Approval" : `Dispatch Batches${batches.length > 0 ? ` (${batches.length})` : ""}`}
+                {tab === "request" ? "Order Request"
+                  : tab === "review" ? "Review Panel"
+                  : tab === "batches" ? `Batches${batches.length > 0 ? ` (${batches.length})` : ""}`
+                  : "Review Log"}
               </button>
             ))}
           </div>
 
           <div className="p-6">
+            {/* ── ORDER REQUEST TAB ── */}
             {activeTab === "request" && (
               <div>
                 <div className="mb-4 grid grid-cols-3 gap-3">
@@ -480,69 +817,98 @@ export function OrdersWorkflowPage() {
               </div>
             )}
 
-            {activeTab === "approval" && (
+            {/* ── REVIEW PANEL TAB ── */}
+            {activeTab === "review" && (
               <div>
-                {/* Order Placed — waiting for review to begin */}
+                {isReviewStatus && (
+                  <ReviewPanel
+                    order={selected}
+                    onSubmit={handleReviewSubmit}
+                    onFullReject={() => setRejectModal(true)}
+                  />
+                )}
                 {selected.status === "Order Placed" && (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <Clock className="mb-3 h-10 w-10 text-slate-300" />
-                    <p className="text-sm font-semibold text-slate-600">Waiting for warehouse review.</p>
-                    <p className="mt-1 text-xs text-slate-400">Move the order to "Under Review" to begin the approval process.</p>
+                    <p className="text-sm font-semibold text-slate-600">Move to "Under Review" first.</p>
+                    <p className="mt-1 text-xs text-slate-400">Use the "Move to Under Review" button above to begin the review process.</p>
                   </div>
                 )}
-
-                {/* Under Review — show product list for review, no approved products yet */}
-                {selected.status === "Under Review" && (
+                {selected.status === "Approved" && (
                   <div>
-                    <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                      <BarChart3 className="h-4 w-4 text-amber-500" />
-                      <span>Review the requested products and quantities, then approve or reject the order using the buttons above.</span>
+                    <div className="mb-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                      <span>Order fully approved. All products confirmed for production.</span>
                     </div>
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Products Under Review</p>
+                    <ul className="space-y-1">
+                      {selected.items.map(item => (
+                        <li key={item.product} className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-2.5 text-sm">
+                          <div className="flex items-center gap-2 font-medium text-slate-800">
+                            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                            {item.product}
+                          </div>
+                          <span className="text-xs text-slate-500">{item.approvedQty} {item.unit}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {isPartiallyApproved && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                      <AlertTriangle className="h-4 w-4 text-amber-500" />
+                      <span>Partial approval submitted. Awaiting branch response.</span>
+                    </div>
                     <table className="w-full text-left text-sm">
                       <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                         <tr>
                           <th className="px-4 py-3">Product</th>
-                          <th className="px-4 py-3 text-right">Ordered Qty</th>
-                          <th className="px-4 py-3">Unit</th>
+                          <th className="px-4 py-3 text-right">Ordered</th>
+                          <th className="px-4 py-3 text-right">Approved</th>
+                          <th className="px-4 py-3">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {selected.items.map(item => (
-                          <tr key={item.product}>
-                            <td className="px-4 py-3 font-medium text-slate-800">{item.product}</td>
-                            <td className="px-4 py-3 text-right font-semibold text-slate-800">{item.orderedQty}</td>
-                            <td className="px-4 py-3 text-slate-500">{item.unit}</td>
-                          </tr>
-                        ))}
+                        {selected.items.map(item => {
+                          const approved = item.approvedQty > 0;
+                          return (
+                            <tr key={item.product}>
+                              <td className="px-4 py-3 font-medium text-slate-800">{item.product}</td>
+                              <td className="px-4 py-3 text-right text-slate-600">{item.orderedQty} {item.unit}</td>
+                              <td className="px-4 py-3 text-right font-semibold">{approved ? item.approvedQty : 0} {item.unit}</td>
+                              <td className="px-4 py-3">
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${approved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                                  {approved ? "Approved" : "Rejected"}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
-                    <p className="mt-4 text-center text-xs text-slate-400">Products will appear here after approval.</p>
                   </div>
                 )}
-
-                {/* Rejected — show rejection state, no approved products */}
-                {selected.status === "Rejected" && (
+                {isRejected && (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <AlertTriangle className="mb-3 h-10 w-10 text-red-300" />
-                    <p className="text-sm font-semibold text-red-600">Order Rejected</p>
-                    <p className="mt-1 text-xs text-slate-400">This order was rejected and will not proceed to production.</p>
+                    <p className="text-sm font-semibold text-red-600">Order Rejected by Warehouse</p>
+                    <p className="mt-1 text-xs text-slate-400">Branch has been notified. They may resubmit or cancel the order.</p>
                   </div>
                 )}
-
-                {/* Approved or beyond — show approved products and enable Add to Production */}
-                {selected.status !== "Order Placed" && selected.status !== "Under Review" && selected.status !== "Rejected" && (
+                {!isReviewStatus && !["Order Placed","Approved","Partially Approved","Rejected"].includes(selected.status) && (
                   <div>
                     <div className="mb-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                       <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                      <span>Order approved. Products are confirmed and ready for production.</span>
+                      <span>Order approved and in progress. Products confirmed for production.</span>
                     </div>
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Approved Products</p>
                     <ul className="space-y-1">
-                      {selected.items.map(item => (
-                        <li key={item.product} className="flex items-center gap-2 rounded-lg bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-800">
-                          <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-500" />
-                          {item.product}
+                      {selected.items.filter(i => i.approvedQty > 0).map(item => (
+                        <li key={item.product} className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-2.5 text-sm">
+                          <div className="flex items-center gap-2 font-medium text-slate-800">
+                            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                            {item.product}
+                          </div>
+                          <span className="text-xs text-slate-500">{item.approvedQty} {item.unit}</span>
                         </li>
                       ))}
                     </ul>
@@ -551,6 +917,7 @@ export function OrdersWorkflowPage() {
               </div>
             )}
 
+            {/* ── BATCHES TAB ── */}
             {activeTab === "batches" && (
               <div className="space-y-4">
                 {batches.length === 0 ? (
@@ -583,8 +950,7 @@ export function OrdersWorkflowPage() {
                             </span>
                           </div>
                           {batch.status === "Scheduled" && (
-                            <button
-                              onClick={() => handleAdvanceBatch(batch.batchId, batch.status)}
+                            <button onClick={() => handleAdvanceBatch(batch.batchId, batch.status)}
                               className="rounded-lg bg-[#0B2C66] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0a2559] transition-colors">
                               Mark In Transit
                             </button>
@@ -610,7 +976,7 @@ export function OrdersWorkflowPage() {
                           </div>
                         </div>
                         <div>
-                          <p className="mb-1.5 text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Products in this batch</p>
+                          <p className="mb-1.5 text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Products</p>
                           <div className="space-y-1">
                             {batch.products.map(p => (
                               <div key={p.product} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-1.5 text-sm">
@@ -634,6 +1000,14 @@ export function OrdersWorkflowPage() {
                     </button>
                   );
                 })()}
+              </div>
+            )}
+
+            {/* ── REVIEW LOG TAB ── */}
+            {activeTab === "log" && (
+              <div>
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Review History</p>
+                <ReviewLog orderId={selected.id} />
               </div>
             )}
           </div>
@@ -666,7 +1040,7 @@ export function OrdersWorkflowPage() {
                 </div>
               </div>
 
-              {/* Product selection — only unassigned products shown */}
+              {/* Product selection */}
               <div>
                 <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Products in this batch <span className="text-red-500">*</span>
@@ -708,9 +1082,6 @@ export function OrdersWorkflowPage() {
                           ))}
                         </div>
                       )}
-                      {unassigned.length === 0 && (
-                        <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">All products are already assigned to batches.</p>
-                      )}
                     </div>
                   );
                 })()}
@@ -720,17 +1091,17 @@ export function OrdersWorkflowPage() {
               <div>
                 <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Select Driver</label>
                 {drivers.length === 0 ? (
-                  <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">No available drivers right now.</p>
+                  <div className="space-y-2">
+                    <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">No available drivers. Reset the pool to continue.</p>
+                    <button onClick={handleResetPool} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">Reset Driver/Vehicle Pool</button>
+                  </div>
                 ) : (
                   <div className="space-y-2 max-h-36 overflow-y-auto">
                     {drivers.map(d => (
                       <button key={d.id} onClick={() => setSelectedDriver(d.id)}
-                        className={`w-full flex items-center justify-between rounded-lg border px-4 py-2.5 text-sm transition-colors ${selectedDriver === d.id ? "border-[#0B2C66] bg-[#EEF4FF]" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
-                        <div className="text-left">
-                          <p className="font-semibold text-slate-800">{d.name}</p>
-                          <p className="text-xs text-slate-400">{d.phone}</p>
-                        </div>
-                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Available</span>
+                        className={`w-full flex items-center justify-between rounded-lg border px-4 py-2.5 text-sm transition-colors ${selectedDriver === d.id ? "border-[#0B2C66] bg-[#EEF4FF]" : "border-slate-200 hover:bg-slate-50"}`}>
+                        <span className="font-medium text-slate-800">{d.name}</span>
+                        <span className="text-xs text-slate-400">{d.phone}</span>
                       </button>
                     ))}
                   </div>
@@ -741,43 +1112,26 @@ export function OrdersWorkflowPage() {
               <div>
                 <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Select Vehicle</label>
                 {vehicles.length === 0 ? (
-                  <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">No available vehicles right now.</p>
+                  <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">No available vehicles.</p>
                 ) : (
                   <div className="space-y-2 max-h-36 overflow-y-auto">
                     {vehicles.map(v => (
                       <button key={v.id} onClick={() => setSelectedVehicle(v.id)}
-                        className={`w-full flex items-center justify-between rounded-lg border px-4 py-2.5 text-sm transition-colors ${selectedVehicle === v.id ? "border-[#0B2C66] bg-[#EEF4FF]" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
-                        <div className="text-left">
-                          <p className="font-semibold text-slate-800">{v.number}</p>
-                          <p className="text-xs text-slate-400">{v.type}</p>
-                        </div>
-                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Available</span>
+                        className={`w-full flex items-center justify-between rounded-lg border px-4 py-2.5 text-sm transition-colors ${selectedVehicle === v.id ? "border-[#0B2C66] bg-[#EEF4FF]" : "border-slate-200 hover:bg-slate-50"}`}>
+                        <span className="font-medium text-slate-800">{v.number}</span>
+                        <span className="text-xs text-slate-400">{v.type}</span>
                       </button>
                     ))}
                   </div>
                 )}
               </div>
-
-              {(drivers.length === 0 || vehicles.length === 0) && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className="text-xs text-slate-500 mb-2">Reset the pool to make drivers and vehicles available again.</p>
-                  <button onClick={handleResetPool}
-                    className="rounded-md bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition-colors">
-                    Reset Driver &amp; Vehicle Pool
-                  </button>
-                </div>
-              )}
             </div>
 
             <div className="mt-5 flex gap-3">
-              <button onClick={() => setBatchModal(false)}
-                className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateBatch}
+              <button onClick={() => setBatchModal(false)} className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={handleCreateBatch}
                 disabled={!selectedDriver || !selectedVehicle || selectedProducts.size === 0}
-                className="flex-1 rounded-lg bg-[#0B2C66] py-2.5 text-sm font-semibold text-white hover:bg-[#092757] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                className="flex-1 rounded-lg bg-[#0B2C66] py-2.5 text-sm font-semibold text-white hover:bg-[#0a2559] disabled:opacity-40 transition-colors">
                 Create Batch
               </button>
             </div>
@@ -785,14 +1139,5 @@ export function OrdersWorkflowPage() {
         </div>
       )}
     </ErpLayout>
-  );
-}
-
-function InfoBox({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
-  return (
-    <div className="rounded-lg bg-slate-50 px-4 py-3">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className={`mt-0.5 text-sm font-semibold ${highlight ? "text-red-600" : "text-slate-800"}`}>{value}</p>
-    </div>
   );
 }

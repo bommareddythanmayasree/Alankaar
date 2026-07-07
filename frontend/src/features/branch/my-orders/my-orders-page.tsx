@@ -15,9 +15,8 @@ import {
   type BranchOrderDetail,
   type BranchOrderLifecycle,
   type DispatchSlot,
-  type PaymentIntent,
 } from "../../../shared/data/workflow-mock-data";
-import { getCurrentDemoBranchName, getSubmittedOrders, getWarehouseOrders, getWorkflowOrders, calcOrderAmount, getDispatchAssignment, getDispatchBatchesForOrder, getDeliveryDiscrepancy, getDeliveryException, getOrderDeliveryStatus, reportDeliveryDiscrepancy, getInvoiceAmount, getOutstandingAmount, getInvoiceSubtotal, type SubmittedOrder, type WarehouseOrderStatus, type DeliveryDiscrepancy, type DiscrepancyItem, type DeliveryExceptionRecord, type DispatchBatch } from "../../../shared/lib/demo-store";
+import { getCurrentDemoBranchName, getSubmittedOrders, getWarehouseOrders, getWorkflowOrders, calcOrderAmount, getDispatchAssignment, getDispatchBatchesForOrder, getDeliveryDiscrepancy, getDeliveryException, getOrderDeliveryStatus, reportDeliveryDiscrepancy, getInvoiceAmount, getOutstandingAmount, getInvoiceSubtotal, getOrderReview, branchAcceptPartialApproval, branchResubmitOrder, type SubmittedOrder, type WarehouseOrderStatus, type DeliveryDiscrepancy, type DiscrepancyItem, type DeliveryExceptionRecord, type DispatchBatch } from "../../../shared/lib/demo-store";
 import { formatCurrency } from "../../../shared/utils/format-currency";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -51,11 +50,20 @@ function lifecycleColors(s: BranchOrderLifecycle) {
   if (s === "Production Started")             return { badge: "bg-blue-100 text-blue-700",       dot: "bg-blue-500" };
   if (s === "Added To Production")            return { badge: "bg-cyan-100 text-cyan-700",       dot: "bg-cyan-500" };
   if (s === "Approved")                       return { badge: "bg-teal-100 text-teal-700",       dot: "bg-teal-500" };
-  if (s === "Warehouse Review")               return { badge: "bg-amber-100 text-amber-700",     dot: "bg-amber-500" };
+  if (s === "Partially Approved")             return { badge: "bg-amber-100 text-amber-700",     dot: "bg-amber-500" };
+  if (s === "Rejected")                       return { badge: "bg-red-100 text-red-700",         dot: "bg-red-500" };
+  if (s === "Resubmitted")                    return { badge: "bg-violet-100 text-violet-700",   dot: "bg-violet-500" };
+  if (s === "Warehouse Review" || s === "Pending Review") return { badge: "bg-amber-100 text-amber-700", dot: "bg-amber-500" };
   return { badge: "bg-slate-100 text-slate-600", dot: "bg-slate-400" };
 }
 
 function bannerConfig(s: BranchOrderLifecycle) {
+  if (s === "Partially Approved")
+    return { text: "PARTIALLY APPROVED BY WAREHOUSE — ACTION REQUIRED", bg: "bg-amber-500", icon: <AlertTriangle className="h-5 w-5" /> };
+  if (s === "Rejected")
+    return { text: "ORDER REJECTED BY WAREHOUSE", bg: "bg-red-600", icon: <AlertTriangle className="h-5 w-5" /> };
+  if (s === "Resubmitted")
+    return { text: "ORDER RESUBMITTED — AWAITING WAREHOUSE REVIEW", bg: "bg-violet-600", icon: <Clock className="h-5 w-5" /> };
   if (s === "Production Started" || s === "Added To Production" || s === "Production Completed")
     return { text: "YOUR ORDER IS IN PRODUCTION", bg: "bg-blue-600", icon: <PlayCircle className="h-5 w-5" /> };
   if (s === "Ready For Dispatch")
@@ -93,16 +101,6 @@ function dispatchStatusColor(s: string) {
 }
 
 
-const INTENT_OPTIONS: PaymentIntent[] = [
-  "Ready To Pay", "Will Pay Later", "Payment Pending", "Payment Completed",
-];
-
-function intentColor(i: PaymentIntent) {
-  if (i === "Ready To Pay")       return "border-emerald-300 bg-emerald-50 text-emerald-700";
-  if (i === "Will Pay Later")     return "border-indigo-300 bg-indigo-50 text-indigo-700";
-  if (i === "Payment Completed")  return "border-teal-300 bg-teal-50 text-teal-700";
-  return "border-amber-300 bg-amber-50 text-amber-700";
-}
 
 function fmt(v: number) {
   return formatCurrency(v);
@@ -164,6 +162,254 @@ function OrderCard({ order, selected, onSelect }: {
   );
 }
 
+// ── Partial Approval Panel (branch response) ───────────────────────────────────
+function PartialApprovalPanel({ order }: { order: BranchOrderDetail }) {
+  const [resubmitMode, setResubmitMode] = useState(false);
+  const [revisedQtys, setRevisedQtys] = useState<Record<string, number>>({});
+  const [toast, setToast] = useState<string | null>(null);
+
+  if (order.lifecycleStatus !== "Partially Approved") return null;
+
+  // Get review from demo store or fall back to demo data
+  const review = getOrderReview(order.orderId);
+  const rejectedItems = order.items.filter(i => i.rejectedQty >= i.orderedQty || i.approvedQty === 0);
+  const approvedItems = order.items.filter(i => i.approvedQty > 0);
+
+  // Get rejection reasons from review
+  function getRejectionReason(product: string): string {
+    if (!review) {
+      // Demo fallback
+      const demoReasons: Record<string, string> = {
+        "Mysore Pak": "Out of Stock",
+        "Boondi Laddu": "Production Capacity Full",
+        "Dry Fruit Barfi": "Raw Material Shortage",
+        "Gulab Jamun": "Production Capacity Full",
+      };
+      return demoReasons[product] ?? "Not available";
+    }
+    return review.items.find(i => i.product === product)?.rejectionReason ?? "—";
+  }
+
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  }
+
+  function handleAccept() {
+    branchAcceptPartialApproval(order.orderId);
+    showToast("Changes accepted. Approved products will proceed to production.");
+    window.dispatchEvent(new StorageEvent("storage", { key: "workflowOrders" }));
+  }
+
+  function handleResubmit() {
+    const updatedItems = order.items.map(item => {
+      const isRejected = item.approvedQty === 0;
+      const revisedQty = revisedQtys[item.product];
+      return {
+        product: item.product,
+        orderedQty: isRejected ? (revisedQty ?? item.orderedQty) : item.orderedQty,
+        approvedQty: 0,
+        rejectedQty: 0,
+        unit: item.unit,
+      };
+    });
+    branchResubmitOrder(order.orderId, updatedItems);
+    setResubmitMode(false);
+    showToast("Order resubmitted to warehouse for review.");
+    window.dispatchEvent(new StorageEvent("storage", { key: "workflowOrders" }));
+  }
+
+  return (
+    <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4 space-y-4">
+      {toast && (
+        <div className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">{toast}</div>
+      )}
+      <div className="flex items-center gap-2">
+        <span className="rounded-full bg-amber-200 px-2.5 py-0.5 text-xs font-bold text-amber-800">Partially Approved by Warehouse</span>
+      </div>
+
+      {/* Approved items */}
+      {approvedItems.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Approved Products</p>
+          <div className="space-y-1">
+            {approvedItems.map(item => (
+              <div key={item.product} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-sm border border-amber-100">
+                <div className="flex items-center gap-2 font-medium text-slate-800">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  {item.product}
+                </div>
+                <span className="text-xs text-slate-500">
+                  {item.approvedQty !== item.orderedQty
+                    ? <><span className="line-through text-slate-400">{item.orderedQty}</span> → <strong>{item.approvedQty}</strong> {item.unit}</>
+                    : <>{item.approvedQty} {item.unit}</>}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Rejected items */}
+      {rejectedItems.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Rejected Products</p>
+          <div className="space-y-1">
+            {rejectedItems.map(item => (
+              <div key={item.product} className="flex items-start justify-between rounded-lg bg-white px-3 py-2 text-sm border border-red-100">
+                <div className="flex items-center gap-2 font-medium text-slate-800">
+                  <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
+                  {item.product}
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-red-600 font-semibold">Rejected</p>
+                  <p className="text-[10px] text-slate-400">{getRejectionReason(item.product)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Resubmit form */}
+      {resubmitMode && (
+        <div className="rounded-lg border border-violet-200 bg-white p-3 space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Edit Rejected Products</p>
+          {rejectedItems.map(item => (
+            <div key={item.product} className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-slate-800">{item.product}</span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  placeholder={String(item.orderedQty)}
+                  value={revisedQtys[item.product] ?? item.orderedQty}
+                  onChange={e => setRevisedQtys(prev => ({ ...prev, [item.product]: Number(e.target.value) }))}
+                  className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-violet-400"
+                />
+                <span className="text-xs text-slate-400">{item.unit}</span>
+              </div>
+            </div>
+          ))}
+          <div className="flex gap-2 pt-1">
+            <button onClick={() => setResubmitMode(false)} className="flex-1 rounded-lg border border-slate-200 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
+            <button onClick={handleResubmit} className="flex-1 rounded-lg bg-violet-600 py-2 text-sm font-semibold text-white hover:bg-violet-700 transition-colors">Resubmit Order</button>
+          </div>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      {!resubmitMode && (
+        <div className="flex gap-3 pt-1">
+          <button onClick={handleAccept}
+            className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-teal-600 py-2.5 text-sm font-semibold text-white hover:bg-teal-700 transition-colors">
+            <CheckCircle2 className="h-4 w-4" />
+            Accept Changes
+          </button>
+          <button onClick={() => setResubmitMode(true)}
+            className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-violet-300 bg-white py-2.5 text-sm font-semibold text-violet-700 hover:bg-violet-50 transition-colors">
+            <Flag className="h-4 w-4" />
+            Modify & Resubmit
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Rejected Panel (branch side) ───────────────────────────────────────────────
+function RejectedPanel({ order }: { order: BranchOrderDetail }) {
+  const [editMode, setEditMode] = useState(false);
+  const [revisedQtys, setRevisedQtys] = useState<Record<string, number>>({});
+  const [toast, setToast] = useState<string | null>(null);
+
+  if (order.lifecycleStatus !== "Rejected") return null;
+
+  const review = getOrderReview(order.orderId);
+  const rejectionReason = review?.overallRejectionReason ?? "Factory Closed";
+  const reviewDate = review?.reviewedAt ?? order.orderDate;
+
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  }
+
+  function handleResubmit() {
+    const updatedItems = order.items.map(item => ({
+      product: item.product,
+      orderedQty: revisedQtys[item.product] ?? item.orderedQty,
+      approvedQty: 0,
+      rejectedQty: 0,
+      unit: item.unit,
+    }));
+    branchResubmitOrder(order.orderId, updatedItems);
+    setEditMode(false);
+    showToast("Order resubmitted to warehouse for review.");
+    window.dispatchEvent(new StorageEvent("storage", { key: "workflowOrders" }));
+  }
+
+  return (
+    <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4 space-y-4">
+      {toast && (
+        <div className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">{toast}</div>
+      )}
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-5 w-5 text-red-600" />
+        <span className="font-bold text-red-800">Rejected by Warehouse</span>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg bg-white px-3 py-2.5 border border-red-100">
+          <p className="text-[10px] text-slate-400 uppercase">Reason</p>
+          <p className="text-sm font-semibold text-red-700">{rejectionReason}</p>
+        </div>
+        <div className="rounded-lg bg-white px-3 py-2.5 border border-red-100">
+          <p className="text-[10px] text-slate-400 uppercase">Rejected On</p>
+          <p className="text-sm font-semibold text-slate-800">{reviewDate}</p>
+        </div>
+      </div>
+
+      {editMode && (
+        <div className="rounded-lg border border-violet-200 bg-white p-3 space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Edit Order Before Resubmitting</p>
+          {order.items.map(item => (
+            <div key={item.product} className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-slate-800">{item.product}</span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  value={revisedQtys[item.product] ?? item.orderedQty}
+                  onChange={e => setRevisedQtys(prev => ({ ...prev, [item.product]: Number(e.target.value) }))}
+                  className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-right text-sm outline-none focus:border-violet-400"
+                />
+                <span className="text-xs text-slate-400">{item.unit}</span>
+              </div>
+            </div>
+          ))}
+          <div className="flex gap-2 pt-1">
+            <button onClick={() => setEditMode(false)} className="flex-1 rounded-lg border border-slate-200 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
+            <button onClick={handleResubmit} className="flex-1 rounded-lg bg-violet-600 py-2 text-sm font-semibold text-white hover:bg-violet-700 transition-colors">Resubmit</button>
+          </div>
+        </div>
+      )}
+
+      {!editMode && (
+        <div className="flex gap-2">
+          <button onClick={() => setEditMode(true)}
+            className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
+            <Flag className="h-4 w-4" />
+            Edit & Resubmit
+          </button>
+          <button onClick={() => setEditMode(true)}
+            className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-violet-600 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 transition-colors">
+            Resubmit Order
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Detail panel tabs ─────────────────────────────────────────────────────────
 
 function TabOverview({ order }: { order: BranchOrderDetail }) {
@@ -197,7 +443,7 @@ function TabOverview({ order }: { order: BranchOrderDetail }) {
       </div>
 
       {/* Status-specific details */}
-      {(s === "Warehouse Review" || s === "Order Placed") && (
+      {(s === "Warehouse Review" || s === "Order Placed" || s === "Pending Review") && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Pending Approval</p>
           <div className="grid grid-cols-2 gap-3">
@@ -211,6 +457,13 @@ function TabOverview({ order }: { order: BranchOrderDetail }) {
             </div>
           </div>
           <p className="text-xs text-amber-600">Your order has been submitted and is waiting for warehouse review and approval.</p>
+        </div>
+      )}
+
+      {s === "Resubmitted" && (
+        <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Order Resubmitted</p>
+          <p className="text-xs text-violet-600">Your revised order has been sent back to the warehouse for review.</p>
         </div>
       )}
 
@@ -228,6 +481,9 @@ function TabOverview({ order }: { order: BranchOrderDetail }) {
           <p className="text-xs text-teal-600">Approved by Warehouse Manager · Entering production shortly</p>
         </div>
       )}
+
+      <PartialApprovalPanel order={order} />
+      <RejectedPanel order={order} />
 
 
 
@@ -725,13 +981,19 @@ function mockDispatchForOrder(order: BranchOrderDetail): DispatchSlot[] {
 }
 
 function TabDispatches({ order }: { order: BranchOrderDetail }) {
+  const s = order.lifecycleStatus;
+
+  // Always read live dispatch batches first — warehouse may have created them
+  // before the order status has formally advanced on the branch side.
+  const liveBatches: DispatchBatch[] = getDispatchBatchesForOrder(order.orderId);
+
+  // Show empty state only when no batches exist AND order hasn't reached dispatch yet
   const DISPATCH_STAGES: BranchOrderLifecycle[] = [
     "Ready For Dispatch", "Morning Dispatch", "Evening Dispatch",
-    "In Transit", "Delivered", "Awaiting Invoice", "Invoice Generated", "Payment Pending",
-    "Payment Verification Pending", "Payment Completed", "Order Closed",
+    "In Transit", "Delivered", "Partially Delivered", "Awaiting Invoice", "Invoice Generated",
+    "Payment Pending", "Payment Verification Pending", "Payment Completed", "Order Closed",
   ];
-
-  if (!DISPATCH_STAGES.includes(order.lifecycleStatus)) {
+  if (liveBatches.length === 0 && !DISPATCH_STAGES.includes(s)) {
     return (
       <div className="flex flex-col items-center justify-center py-14 text-slate-400">
         <Truck className="mb-3 h-10 w-10" />
@@ -739,11 +1001,6 @@ function TabDispatches({ order }: { order: BranchOrderDetail }) {
       </div>
     );
   }
-
-  const s = order.lifecycleStatus;
-
-  // Try live dispatch batches first
-  const liveBatches: DispatchBatch[] = getDispatchBatchesForOrder(order.orderId);
 
   if (liveBatches.length > 0) {
     return (
@@ -806,69 +1063,71 @@ function TabDispatches({ order }: { order: BranchOrderDetail }) {
     );
   }
 
-  // Fallback: single legacy dispatch assignment
-  const assignment = getDispatchAssignment(order.orderId);
+  // Fallback: no live batches but we're in a dispatch stage — legacy assignment
+  if (liveBatches.length === 0) {
+    const assignment = getDispatchAssignment(order.orderId);
 
   if (!assignment) {
+      return (
+        <div className="flex flex-col items-center justify-center py-14 text-slate-400">
+          <Truck className="mb-3 h-10 w-10" />
+          <p className="text-sm font-medium text-slate-500">Driver and vehicle not yet assigned.</p>
+        </div>
+      );
+    }
+
+    const isDelivered = ["Delivered", "Awaiting Invoice", "Invoice Generated", "Payment Pending", "Payment Verification Pending", "Payment Completed", "Order Closed"].includes(s);
+
+    const statusLabel =
+      s === "Ready For Dispatch" ? "Ready For Dispatch"
+      : s === "Morning Dispatch" ? "Out For Delivery — Morning Slot"
+      : s === "Evening Dispatch" ? "Out For Delivery — Evening Slot"
+      : s === "In Transit" ? "Order In Transit"
+      : "Delivered";
+
+    const bannerClass =
+      s === "Ready For Dispatch" ? "bg-violet-50 border-violet-200 text-violet-800"
+      : s === "In Transit" ? "bg-sky-50 border-sky-200 text-sky-800"
+      : isDelivered ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+      : "bg-indigo-50 border-indigo-200 text-indigo-800";
+
+    const truckColor =
+      s === "Ready For Dispatch" ? "text-violet-600"
+      : s === "In Transit" ? "text-sky-600"
+      : isDelivered ? "text-emerald-600"
+      : "text-indigo-600";
+
+    const dispatchStatusLabel =
+      isDelivered ? "Delivered"
+      : s === "In Transit" ? "In Transit"
+      : "Scheduled";
+
     return (
-      <div className="flex flex-col items-center justify-center py-14 text-slate-400">
-        <Truck className="mb-3 h-10 w-10" />
-        <p className="text-sm font-medium text-slate-500">Driver and vehicle not yet assigned.</p>
+      <div className="space-y-4">
+        <div className={`flex items-center gap-3 rounded-xl border px-5 py-4 ${bannerClass}`}>
+          <Truck className={`h-5 w-5 shrink-0 ${truckColor}`} />
+          <p className="text-sm font-bold">{statusLabel}</p>
+          <span className={`ml-auto rounded-full px-2.5 py-0.5 text-xs font-semibold ${dispatchStatusColor(dispatchStatusLabel)}`}>
+            {dispatchStatusLabel}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          {[
+            { label: "Dispatch Date & Time", value: assignment.dispatchTime },
+            { label: "Dispatch Type",        value: `${assignment.slot ?? "Morning"} Dispatch` },
+            { label: "Driver",               value: assignment.driverName },
+            { label: "Vehicle",              value: assignment.vehicleNumber },
+            { label: "Dispatch Status",      value: s },
+          ].map(f => (
+            <div key={f.label} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-wide text-slate-400">{f.label}</p>
+              <p className="mt-0.5 text-sm font-semibold text-slate-800">{f.value}</p>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
-
-  const isDelivered = ["Delivered", "Awaiting Invoice", "Invoice Generated", "Payment Pending", "Payment Verification Pending", "Payment Completed", "Order Closed"].includes(s);
-
-  const statusLabel =
-    s === "Ready For Dispatch" ? "Ready For Dispatch"
-    : s === "Morning Dispatch" ? "Out For Delivery — Morning Slot"
-    : s === "Evening Dispatch" ? "Out For Delivery — Evening Slot"
-    : s === "In Transit" ? "Order In Transit"
-    : "Delivered";
-
-  const bannerClass =
-    s === "Ready For Dispatch" ? "bg-violet-50 border-violet-200 text-violet-800"
-    : s === "In Transit" ? "bg-sky-50 border-sky-200 text-sky-800"
-    : isDelivered ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-    : "bg-indigo-50 border-indigo-200 text-indigo-800";
-
-  const truckColor =
-    s === "Ready For Dispatch" ? "text-violet-600"
-    : s === "In Transit" ? "text-sky-600"
-    : isDelivered ? "text-emerald-600"
-    : "text-indigo-600";
-
-  const dispatchStatusLabel =
-    isDelivered ? "Delivered"
-    : s === "In Transit" ? "In Transit"
-    : "Scheduled";
-
-  return (
-    <div className="space-y-4">
-      <div className={`flex items-center gap-3 rounded-xl border px-5 py-4 ${bannerClass}`}>
-        <Truck className={`h-5 w-5 shrink-0 ${truckColor}`} />
-        <p className="text-sm font-bold">{statusLabel}</p>
-        <span className={`ml-auto rounded-full px-2.5 py-0.5 text-xs font-semibold ${dispatchStatusColor(dispatchStatusLabel)}`}>
-          {dispatchStatusLabel}
-        </span>
-      </div>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        {[
-          { label: "Dispatch Date & Time", value: assignment.dispatchTime },
-          { label: "Dispatch Type",        value: `${assignment.slot ?? "Morning"} Dispatch` },
-          { label: "Driver",               value: assignment.driverName },
-          { label: "Vehicle",              value: assignment.vehicleNumber },
-          { label: "Dispatch Status",      value: s },
-        ].map(f => (
-          <div key={f.label} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-wide text-slate-400">{f.label}</p>
-            <p className="mt-0.5 text-sm font-semibold text-slate-800">{f.value}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function TabDeliveries({ order }: { order: BranchOrderDetail }) {
@@ -882,7 +1141,12 @@ function TabDeliveries({ order }: { order: BranchOrderDetail }) {
   const [otherRemarks, setOtherRemarks] = useState("");
   const currentBranch = getCurrentDemoBranchName();
 
-  if (!DELIVERY_ACTIVE_STAGES.includes(order.lifecycleStatus)) {
+  const liveBatches: DispatchBatch[] = getDispatchBatchesForOrder(order.orderId);
+  const s = order.lifecycleStatus;
+  const hasAnyDeliveredBatch = liveBatches.some(b => b.status === "Delivered");
+
+  // Show empty state only when: no delivered batches AND order hasn't reached delivery stages yet
+  if (!hasAnyDeliveredBatch && !DELIVERY_ACTIVE_STAGES.includes(s)) {
     return (
       <div className="flex flex-col items-center justify-center py-14 text-slate-400">
         <Package className="mb-3 h-10 w-10" />
@@ -890,11 +1154,6 @@ function TabDeliveries({ order }: { order: BranchOrderDetail }) {
       </div>
     );
   }
-
-  const liveBatches: DispatchBatch[] = getDispatchBatchesForOrder(order.orderId);
-  const s = order.lifecycleStatus;
-  const hasAnyDelivered = liveBatches.some(b => b.status === "Delivered");
-  const allDelivered = liveBatches.length > 0 && liveBatches.every(b => b.status === "Delivered");
 
   function handleSubmitDiscrepancy() {
     const items: DiscrepancyItem[] = [];
@@ -911,6 +1170,8 @@ function TabDeliveries({ order }: { order: BranchOrderDetail }) {
 
   if (liveBatches.length > 0) {
     const sorted = [...liveBatches].sort((a, b) => a.batchNumber - b.batchNumber);
+    const allDelivered = sorted.every(b => b.status === "Delivered");
+    const hasAnyDelivered = sorted.some(b => b.status === "Delivered");
     return (
       <div className="space-y-4">
         <div className={`rounded-xl border p-3 flex items-center gap-3 ${allDelivered ? "border-emerald-200 bg-emerald-50" : hasAnyDelivered ? "border-amber-200 bg-amber-50" : "border-sky-200 bg-sky-50"}`}>
@@ -1071,49 +1332,25 @@ function TabDeliveries({ order }: { order: BranchOrderDetail }) {
   );
 }
 
-function TabFinancials({ order, intentMap, setIntentMap, onGenerateBill, showInvoice, setShowInvoice }: {
+function TabFinancials({ order, showInvoice, setShowInvoice }: {
   order: BranchOrderDetail;
-  intentMap: Record<string, PaymentIntent>;
-  setIntentMap: (m: Record<string, PaymentIntent>) => void;
-  onGenerateBill: () => void;
   showInvoice: boolean;
   setShowInvoice: (v: boolean) => void;
 }) {
-  const INVOICE_STAGES: BranchOrderLifecycle[] = [
-    "Invoice Generated", "Payment Pending", "Payment Verification Pending", "Payment Completed", "Order Closed",
-  ];
-  const PAYMENT_STAGES: BranchOrderLifecycle[] = [
-    "Payment Pending", "Payment Verification Pending", "Payment Completed", "Order Closed",
-  ];
-
-  // Gate: only show after Invoice Generated
-  if (!INVOICE_STAGES.includes(order.lifecycleStatus)) {
-    return (
-      <div className="flex flex-col items-center justify-center py-14 text-slate-400">
-        <Receipt className="mb-3 h-10 w-10" />
-        <p className="text-sm font-medium text-slate-500">Invoice has not been generated yet.</p>
-      </div>
-    );
-  }
-
-  const currentIntent = intentMap[order.orderId] ?? order.paymentIntent;
-  const isSettled = order.lifecycleStatus === "Payment Completed" || order.lifecycleStatus === "Order Closed" || currentIntent === "Payment Completed";
-  const isVerificationPending = order.lifecycleStatus === "Payment Verification Pending";
   const invoiceSubtotal = getInvoiceSubtotal(order.orderId);
   const invoiceTotal = getInvoiceAmount(order.orderId);
-  // Fallback to orderValue when no delivery confirmation exists yet (mock orders)
   const billableValue = invoiceSubtotal > 0 ? invoiceSubtotal : (order.deliveredValue > 0 ? order.deliveredValue : order.orderValue);
 
   return (
     <div className="space-y-4">
 
-      {/* Summary cards */}
+      {/* KPI cards */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {[
-          { label: "Ordered Value",   value: fmt(order.orderValue),        bg: "bg-slate-50",    color: "text-slate-800",  border: "border-slate-200" },
-          { label: "Delivered Value", value: fmt(billableValue),           bg: "bg-emerald-50",  color: "text-emerald-700", border: "border-emerald-200" },
-          { label: "Paid Amount",     value: fmt(order.paidAmount),        bg: "bg-teal-50",     color: "text-teal-700",   border: "border-teal-200" },
-          { label: "Outstanding",     value: fmt(order.outstandingAmount), bg: order.outstandingAmount > 0 ? "bg-amber-50" : "bg-slate-50", color: order.outstandingAmount > 0 ? "text-amber-700" : "text-slate-400", border: order.outstandingAmount > 0 ? "border-amber-200" : "border-slate-200" },
+          { label: "Ordered Value",    value: fmt(order.orderValue),        bg: "bg-slate-50",   color: "text-slate-800",   border: "border-slate-200" },
+          { label: "Delivered Value",  value: fmt(billableValue),           bg: "bg-emerald-50", color: "text-emerald-700", border: "border-emerald-200" },
+          { label: "Paid Amount",      value: fmt(order.paidAmount),        bg: "bg-teal-50",    color: "text-teal-700",    border: "border-teal-200" },
+          { label: "Outstanding Amount", value: fmt(order.outstandingAmount), bg: order.outstandingAmount > 0 ? "bg-amber-50" : "bg-slate-50", color: order.outstandingAmount > 0 ? "text-amber-700" : "text-slate-400", border: order.outstandingAmount > 0 ? "border-amber-200" : "border-slate-200" },
         ].map(c => (
           <div key={c.label} className={`rounded-xl border ${c.border} ${c.bg} px-4 py-3`}>
             <p className="text-[10px] uppercase tracking-wide text-slate-400">{c.label}</p>
@@ -1122,111 +1359,43 @@ function TabFinancials({ order, intentMap, setIntentMap, onGenerateBill, showInv
         ))}
       </div>
 
-      {order.cancelledValue > 0 && (
-        <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm">
-          <span className="text-red-500 font-semibold">Cancelled / Short Supply:</span>
-          <span className="font-bold text-red-600">{fmt(order.cancelledValue)}</span>
-          <span className="ml-auto text-xs text-red-400">Not included in bill</span>
-        </div>
-      )}
-
+      {/* Invoice section */}
       {order.invoiceNumber ? (
-        <div className="flex items-center gap-3 rounded-xl border border-teal-200 bg-teal-50 px-5 py-3">
-          <Receipt className="h-5 w-5 shrink-0 text-teal-600" />
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-teal-800">Bill Generated</p>
-            <p className="text-xs text-teal-600">{order.invoiceNumber} &middot; {order.orderDate}</p>
+        <div className="rounded-xl border border-slate-200 bg-white p-5">
+          <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Invoice</p>
+          <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm md:grid-cols-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-slate-400">Invoice Number</p>
+              <p className="mt-0.5 font-semibold text-slate-800">{order.invoiceNumber}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-slate-400">Invoice Date</p>
+              <p className="mt-0.5 font-semibold text-slate-800">{order.orderDate}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-slate-400">Invoice Amount</p>
+              <p className="mt-0.5 font-semibold text-slate-800">{fmt(invoiceTotal > 0 ? invoiceTotal : Math.round(billableValue * 1.05))}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-slate-400">Payment Status</p>
+              <p className={`mt-0.5 font-semibold ${order.lifecycleStatus === "Payment Completed" || order.lifecycleStatus === "Order Closed" ? "text-emerald-600" : "text-amber-600"}`}>
+                {order.lifecycleStatus === "Payment Completed" || order.lifecycleStatus === "Order Closed" ? "Paid" : order.lifecycleStatus === "Payment Verification Pending" ? "Verification Pending" : "Pending"}
+              </p>
+            </div>
           </div>
-          <button onClick={() => setShowInvoice(true)}
-            className="ml-auto flex shrink-0 items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 transition-colors">
-            <Download className="h-3.5 w-3.5" />View Invoice
-          </button>
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <button onClick={() => setShowInvoice(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B2C66] px-4 py-2 text-xs font-semibold text-white hover:bg-[#092757] transition-colors">
+              <Receipt className="h-3.5 w-3.5" />View Invoice
+            </button>
+          </div>
         </div>
       ) : (
-        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-5 py-3 text-sm text-slate-500">
-          <Receipt className="h-4 w-4 text-slate-400" />
-          Invoice will be generated after delivery confirmation.
-        </div>
-      )}
-
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Payment Status</p>
-        {PAYMENT_STAGES.includes(order.lifecycleStatus) ? (
-          <>
-            <div className="flex flex-wrap gap-2">
-              {INTENT_OPTIONS.map(opt => (
-                <button key={opt}
-                  onClick={() => !isSettled && !isVerificationPending && setIntentMap({ ...intentMap, [order.orderId]: opt })}
-                  disabled={isSettled || isVerificationPending}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all disabled:cursor-default ${currentIntent === opt ? intentColor(opt) : "border-slate-200 bg-white text-slate-400 hover:bg-slate-50"}`}>
-                  {opt}
-                </button>
-              ))}
-            </div>
-
-            {isVerificationPending && (
-              <div className="mt-3 flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
-                <Clock className="h-4 w-4 text-orange-600" />
-                <span className="text-sm font-semibold text-orange-700">Payment submitted — awaiting warehouse verification.</span>
-              </div>
-            )}
-
-            {!isSettled && !isVerificationPending && (
-              <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
-                <button onClick={onGenerateBill}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B2C66] px-4 py-2 text-xs font-semibold text-white hover:bg-[#092757] transition-colors">
-                  <Receipt className="h-3.5 w-3.5" />Generate Bill
-                </button>
-                {order.invoiceNumber && (
-                  <button className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
-                    <Download className="h-3.5 w-3.5" />Download Invoice
-                  </button>
-                )}
-              </div>
-            )}
-
-            {isSettled && (
-              <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                <span className="text-sm font-semibold text-emerald-700">Payment Complete &mdash; Thank You!</span>
-              </div>
-            )}
-          </>
-        ) : (
-          <p className="text-sm text-slate-400">Payment details will be available after the invoice is generated and payment is initiated.</p>
-        )}
-      </div>
-
-      {order.paymentHistory.length > 0 && PAYMENT_STAGES.includes(order.lifecycleStatus) && (
-        <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Payment History</p>
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-2">Date</th>
-                  <th className="px-4 py-2 text-right">Amount</th>
-                  <th className="px-4 py-2">Method</th>
-                  <th className="px-4 py-2">Reference</th>
-                  <th className="px-4 py-2">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {order.paymentHistory.map((p, i) => (
-                  <tr key={i}>
-                    <td className="px-4 py-2 text-slate-600">{p.date}</td>
-                    <td className="px-4 py-2 text-right font-semibold text-slate-800">{fmt(p.amount)}</td>
-                    <td className="px-4 py-2">
-                      <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700">{p.method}</span>
-                    </td>
-                    <td className="px-4 py-2 font-mono text-xs text-slate-400">{p.reference}</td>
-                    <td className="px-4 py-2">
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${p.status === "Completed" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{p.status}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="rounded-xl border border-slate-200 bg-white p-5">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Invoice</p>
+          <div className="flex items-center gap-3 pt-2 text-sm text-slate-400">
+            <Receipt className="h-4 w-4 shrink-0" />
+            No invoice has been generated yet.
           </div>
         </div>
       )}
@@ -1481,22 +1650,164 @@ function stageDetail(
 
 function TabTimeline({ order }: { order: BranchOrderDetail }) {
   const h = hashStr(order.orderId);
+
+  // ── Build merged timeline ────────────────────────────────────────────────
+  // Live dispatch batches are the source of truth for dispatch/delivery stages.
+  // Workflow order status covers pre-dispatch and post-delivery stages.
+
+  const liveBatches = getDispatchBatchesForOrder(order.orderId).sort((a, b) => a.batchNumber - b.batchNumber);
+
+  type MergedEvent = {
+    key: string;
+    label: string;
+    timestamp: string;
+    done: boolean;
+    current: boolean;
+    isBatch?: boolean;
+    batchNumber?: number;
+    batchSlot?: string;
+    batchStatus?: string;
+    driverName?: string;
+    vehicleNumber?: string;
+  };
+
+  // Workflow events up to (but not including) dispatch-related stages when we have live batches
+  const DISPATCH_STAGES_SET = new Set<BranchOrderLifecycle>([
+    "Ready For Dispatch", "Morning Dispatch", "Evening Dispatch",
+    "In Transit", "Delivered", "Partially Delivered",
+  ]);
+
+  // Post-delivery workflow events (Awaiting Invoice and beyond)
+  const POST_DELIVERY_STAGES: BranchOrderLifecycle[] = [
+    "Awaiting Invoice", "Invoice Generated", "Payment Pending",
+    "Payment Verification Pending", "Payment Completed", "Order Closed",
+  ];
+  const POST_DELIVERY_SET = new Set<BranchOrderLifecycle>(POST_DELIVERY_STAGES);
+
+  // Pre-dispatch workflow events (exclude dispatch stages AND post-delivery stages to avoid duplication)
+  const preDispatchEvents: MergedEvent[] = order.timelineEvents
+    .filter(ev => !DISPATCH_STAGES_SET.has(ev.label) && !POST_DELIVERY_SET.has(ev.label))
+    .map((ev, i) => ({ key: `wf-${i}`, label: ev.label, timestamp: ev.timestamp, done: ev.done, current: ev.current }));
+
+  const postDeliveryEvents: MergedEvent[] = order.timelineEvents
+    .filter(ev => POST_DELIVERY_STAGES.includes(ev.label))
+    .map((ev, i) => ({ key: `post-${i}`, label: ev.label, timestamp: ev.timestamp, done: ev.done, current: ev.current }));
+
+  // Batch-derived events
+  const batchEvents: MergedEvent[] = [];
+  if (liveBatches.length > 0) {
+    for (const batch of liveBatches) {
+      const slotLabel = batch.slot === "Morning" ? "Morning Dispatch" : "Evening Dispatch";
+
+      // Scheduled
+      batchEvents.push({
+        key: `batch-${batch.batchId}-scheduled`,
+        label: `${slotLabel} Scheduled`,
+        timestamp: batch.createdAt,
+        done: batch.status !== "Scheduled",
+        current: batch.status === "Scheduled",
+        isBatch: true,
+        batchNumber: batch.batchNumber,
+        batchSlot: batch.slot,
+        batchStatus: "Scheduled",
+        driverName: batch.driverName,
+        vehicleNumber: batch.vehicleNumber,
+      });
+
+      // In Transit
+      batchEvents.push({
+        key: `batch-${batch.batchId}-intransit`,
+        label: `${slotLabel} In Transit`,
+        timestamp: batch.status === "In Transit" || batch.status === "Delivered" ? batch.dispatchTime : "—",
+        done: batch.status === "Delivered",
+        current: batch.status === "In Transit",
+        isBatch: true,
+        batchNumber: batch.batchNumber,
+        batchSlot: batch.slot,
+        batchStatus: "In Transit",
+        driverName: batch.driverName,
+        vehicleNumber: batch.vehicleNumber,
+      });
+
+      // Delivered
+      batchEvents.push({
+        key: `batch-${batch.batchId}-delivered`,
+        label: `${slotLabel} Delivered`,
+        timestamp: batch.deliveredAt ?? "—",
+        done: batch.status === "Delivered",
+        current: false,
+        isBatch: true,
+        batchNumber: batch.batchNumber,
+        batchSlot: batch.slot,
+        batchStatus: "Delivered",
+        driverName: batch.driverName,
+        vehicleNumber: batch.vehicleNumber,
+      });
+    }
+  } else {
+    // No live batches: fall back to workflow dispatch events
+    order.timelineEvents
+      .filter(ev => DISPATCH_STAGES_SET.has(ev.label))
+      .forEach((ev, i) => preDispatchEvents.push({ key: `wf-dispatch-${i}`, label: ev.label, timestamp: ev.timestamp, done: ev.done, current: ev.current }));
+  }
+
+  // Merge: pre-dispatch → batch events → post-delivery
+  const mergedEvents: MergedEvent[] = [
+    ...preDispatchEvents,
+    ...batchEvents,
+    ...postDeliveryEvents,
+  ];
+
+  // If there are no batch events, show all workflow events as-is (orders that haven't reached dispatch)
+  const timelineToRender = batchEvents.length > 0 ? mergedEvents : order.timelineEvents.map((ev, i) => ({
+    key: `wf-all-${i}`, label: ev.label, timestamp: ev.timestamp, done: ev.done, current: ev.current,
+  }));
+
   return (
     <div className="space-y-3">
       <p className="text-sm text-slate-500">Full lifecycle of this order from placement to payment.</p>
       <div className="relative pl-8">
         <div className="absolute left-3.5 top-0 bottom-0 w-0.5 bg-slate-200" />
-        {order.timelineEvents.map((ev, i) => {
-          const details = (ev.done || ev.current) ? stageDetail(ev.label, ev, order, h) : [];
+        {timelineToRender.map((ev, i) => {
+          // For workflow events, compute detail cards using stageDetail helper
+          const wfLabel = ev.label as BranchOrderLifecycle;
+          const details: Array<{ label: string; value: string }> = (ev.done || ev.current)
+            ? ev.isBatch
+              ? [
+                  { label: "Batch", value: `Batch ${ev.batchNumber} — ${ev.batchSlot} Dispatch` },
+                  { label: "Driver", value: ev.driverName ?? "—" },
+                  { label: "Vehicle", value: ev.vehicleNumber ?? "—" },
+                  { label: "Time", value: ev.timestamp && ev.timestamp !== "—" ? ev.timestamp : "—" },
+                ]
+              : stageDetail(wfLabel, { label: wfLabel, timestamp: ev.timestamp, done: ev.done, current: ev.current }, order, h)
+            : [];
+
           return (
-            <div key={i} className={`relative mb-4 ${ev.current || ev.done ? "" : "opacity-50"}`}>
-              <div className={`absolute -left-8 flex h-7 w-7 items-center justify-center rounded-full border-2 ${ev.current ? "border-[#0B2C66] bg-[#0B2C66] text-white ring-4 ring-[#0B2C66]/20" : ev.done ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-200 bg-white"}`}>
+            <div key={ev.key} className={`relative mb-4 ${ev.current || ev.done ? "" : "opacity-50"}`}>
+              <div className={`absolute -left-8 flex h-7 w-7 items-center justify-center rounded-full border-2 ${
+                ev.current ? "border-[#0B2C66] bg-[#0B2C66] text-white ring-4 ring-[#0B2C66]/20"
+                : ev.done ? "border-emerald-500 bg-emerald-500 text-white"
+                : "border-slate-200 bg-white"
+              }`}>
                 {ev.done && !ev.current ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className="text-[10px] font-bold">{i + 1}</span>}
               </div>
-              <div className={`rounded-xl border px-4 py-3 ${ev.current ? "border-[#0B2C66]/30 bg-[#EEF4FF]" : ev.done ? "border-emerald-200 bg-emerald-50/50" : "border-slate-200 bg-white"}`}>
+              <div className={`rounded-xl border px-4 py-3 ${
+                ev.current ? "border-[#0B2C66]/30 bg-[#EEF4FF]"
+                : ev.done ? "border-emerald-200 bg-emerald-50/50"
+                : "border-slate-200 bg-white"
+              }`}>
                 <div className="flex items-center justify-between gap-2">
-                  <span className={`text-sm font-semibold ${ev.current ? "text-[#0B2C66]" : ev.done ? "text-emerald-700" : "text-slate-400"}`}>{ev.label}</span>
-                  {ev.current && <span className="rounded-full bg-[#0B2C66] px-2 py-0.5 text-[10px] font-bold text-white">Current</span>}
+                  <span className={`text-sm font-semibold ${ev.current ? "text-[#0B2C66]" : ev.done ? "text-emerald-700" : "text-slate-400"}`}>
+                    {ev.label}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {ev.isBatch && (
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${ev.batchSlot === "Morning" ? "bg-amber-100 text-amber-700" : "bg-indigo-100 text-indigo-700"}`}>
+                        Batch {ev.batchNumber}
+                      </span>
+                    )}
+                    {ev.current && <span className="rounded-full bg-[#0B2C66] px-2 py-0.5 text-[10px] font-bold text-white">Current</span>}
+                  </div>
                 </div>
                 {details.length > 0 ? (
                   <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5">
@@ -1518,6 +1829,7 @@ function TabTimeline({ order }: { order: BranchOrderDetail }) {
     </div>
   );
 }
+
 
 // ── Derive deterministic stage timestamps from order date+time ────────────────
 // Each stage gets a fixed offset (in minutes) after the order placement time.
@@ -1557,7 +1869,11 @@ function workflowStatusToLifecycle(s: string): BranchOrderLifecycle {
   const map: Record<string, BranchOrderLifecycle> = {
     "Order Placed":         "Order Placed",
     "Under Review":         "Warehouse Review",
+    "Pending Review":       "Pending Review",
     "Approved":             "Approved",
+    "Partially Approved":   "Partially Approved",
+    "Rejected":             "Rejected",
+    "Resubmitted":          "Resubmitted",
     "Added To Production":  "Added To Production",
     "Production Started":   "Production Started",
     "Production Completed": "Production Completed",
@@ -1750,9 +2066,12 @@ export function MyOrdersPage() {
     }
     window.addEventListener("focus", sync);
     window.addEventListener("storage", sync);
+    // Poll every 2 seconds so batch status changes from warehouse propagate immediately
+    const interval = setInterval(sync, 2000);
     return () => {
       window.removeEventListener("focus", sync);
       window.removeEventListener("storage", sync);
+      clearInterval(interval);
     };
   }, [currentBranch]);
 
@@ -1769,13 +2088,13 @@ export function MyOrdersPage() {
     [...submittedOrders, ...mockOrders][0]?.orderId ?? mockOrders[0]?.orderId
   );
   const [activeTab, setActiveTab] = useState<Tab>("overview");
-  const [intentMap, setIntentMap] = useState<Record<string, PaymentIntent>>({});
   const [showInvoice, setShowInvoice] = useState(false);
 
   const selected = ordersToShow.find(o => o.orderId === selectedId) ?? ordersToShow[0];
 
   function smartTab(status: BranchOrderLifecycle): Tab {
-    if (status === "Warehouse Review" || status === "Order Placed" || status === "Approved") return "overview";
+    if (status === "Warehouse Review" || status === "Order Placed" || status === "Approved"
+      || status === "Pending Review" || status === "Partially Approved" || status === "Rejected" || status === "Resubmitted") return "overview";
     if (status === "Added To Production" || status === "Production Started" || status === "Production Completed") return "production";
     if (status === "Ready For Dispatch" || status === "Morning Dispatch" || status === "Evening Dispatch" || status === "In Transit") return "dispatches";
     if (status === "Delivered" || status === "Awaiting Invoice") return "deliveries";
@@ -1838,9 +2157,6 @@ export function MyOrdersPage() {
               {activeTab === "financials" && (
                 <TabFinancials
                   order={selected}
-                  intentMap={intentMap}
-                  setIntentMap={setIntentMap}
-                  onGenerateBill={() => setShowInvoice(true)}
                   showInvoice={showInvoice}
                   setShowInvoice={setShowInvoice}
                 />

@@ -12,6 +12,8 @@ function statusBadge(status: string) {
   if (status === "Approved" || status === "Payment Completed") return "bg-indigo-100 text-indigo-700";
   if (status === "In Transit") return "bg-sky-100 text-sky-700";
   if (status === "Rejected") return "bg-rose-100 text-rose-700";
+  if (status === "Partially Approved") return "bg-amber-100 text-amber-700";
+  if (status === "Resubmitted") return "bg-violet-100 text-violet-700";
   return "bg-amber-100 text-amber-700";
 }
 
@@ -71,18 +73,20 @@ export function OrderHistoryPage() {
   const visible = filtered.slice(0, visibleCount);
 
   const summaryCards = [
-    { label: "All Orders", value: allOrders.length, color: "text-[#0A3A92]", filter: "All" as const },
-    { label: "Pending", value: allOrders.filter((o) => o.status === "Pending" || o.status === "Pending Approval").length, color: "text-amber-600", filter: "Pending" as BranchOrderStatus },
-    { label: "Approved", value: allOrders.filter((o) => o.status === "Approved" || o.status === "Payment Completed").length, color: "text-indigo-600", filter: "Approved" as BranchOrderStatus },
-    { label: "In Transit", value: allOrders.filter((o) => o.status === "In Transit").length, color: "text-sky-600", filter: "In Transit" as BranchOrderStatus },
-    { label: "Delivered", value: allOrders.filter((o) => o.status === "Delivered").length, color: "text-emerald-600", filter: "Delivered" as BranchOrderStatus },
+    { label: "All Orders",        value: allOrders.length, color: "text-[#0A3A92]", filter: "All" as const },
+    { label: "Pending",           value: allOrders.filter((o) => o.status === "Pending" || o.status === "Pending Approval").length, color: "text-amber-600", filter: "Pending" as BranchOrderStatus },
+    { label: "Partially Approved",value: allOrders.filter((o) => o.status === "Partially Approved").length, color: "text-amber-700", filter: "Partially Approved" as BranchOrderStatus },
+    { label: "Rejected",          value: allOrders.filter((o) => o.status === "Rejected").length, color: "text-red-600", filter: "Rejected" as BranchOrderStatus },
+    { label: "Approved",          value: allOrders.filter((o) => o.status === "Approved" || o.status === "Payment Completed").length, color: "text-indigo-600", filter: "Approved" as BranchOrderStatus },
+    { label: "In Transit",        value: allOrders.filter((o) => o.status === "In Transit").length, color: "text-sky-600", filter: "In Transit" as BranchOrderStatus },
+    { label: "Delivered",         value: allOrders.filter((o) => o.status === "Delivered").length, color: "text-emerald-600", filter: "Delivered" as BranchOrderStatus },
   ];
 
   return (
     <ErpLayout sidebarItems={buildSidebar(BRANCH_NAV, [...BRANCH_SIDEBAR_LABELS], "Order History")}>
       <p className="mb-4 text-slate-500">View and track all your branch orders</p>
 
-      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-7">
         {summaryCards.map((card) => (
           <button key={card.label} type="button"
             onClick={() => setStatusFilter(card.filter === "All" ? "All" : card.filter as BranchOrderStatus)}
@@ -104,6 +108,9 @@ export function OrderHistoryPage() {
             className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-[#0A3A92]">
             <option value="All">All Status</option>
             <option value="Pending">Pending</option>
+            <option value="Partially Approved">Partially Approved</option>
+            <option value="Rejected">Rejected</option>
+            <option value="Resubmitted">Resubmitted</option>
             <option value="Approved">Approved</option>
             <option value="In Transit">In Transit</option>
             <option value="Delivered">Delivered</option>

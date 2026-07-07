@@ -1419,8 +1419,11 @@ export function updateWarehouseOrderStatus(orderId: string, status: WarehouseOrd
 export type WorkflowLifecycleStatus =
   | "Order Placed"
   | "Under Review"
+  | "Pending Review"
   | "Approved"
+  | "Partially Approved"
   | "Rejected"
+  | "Resubmitted"
   | "Added To Production"
   | "Production Started"
   | "Production Completed"
@@ -1503,7 +1506,7 @@ export function getWorkflowOrders(): WorkflowOrderLive[] {
  * Increment this version whenever the static mock order list changes
  * (e.g. new orders added, statuses updated). Forces a re-seed on next load.
  */
-const WORKFLOW_SEED_VERSION = "v3";
+const WORKFLOW_SEED_VERSION = "v4";
 const WORKFLOW_SEED_VERSION_KEY = "workflowOrdersSeedVersion";
 
 /**
@@ -1586,7 +1589,9 @@ export function setWorkflowOrderInvoice(orderId: string, invoiceNumber: string) 
 function _notifyBranchForStatus(order: WorkflowOrderLive, status: WorkflowLifecycleStatus) {
   const map: Partial<Record<WorkflowLifecycleStatus, { title: string; msg: string }>> = {
     "Approved":            { title: "Order Approved", msg: `Your order ${order.id} has been approved by warehouse.` },
-    "Rejected":            { title: "Order Rejected", msg: `Your order ${order.id} has been rejected by warehouse.` },
+    "Partially Approved":  { title: "Order Partially Approved", msg: `Your order ${order.id} was partially approved. Please review and respond.` },
+    "Rejected":            { title: "Order Rejected by Warehouse", msg: `Your order ${order.id} has been rejected by warehouse.` },
+    "Resubmitted":         { title: "Order Resubmitted", msg: `Order ${order.id} has been resubmitted to warehouse for review.` },
     "Production Started":  { title: "Production Started", msg: `Your order ${order.id} is now in production.` },
     "Ready For Dispatch":  { title: "Ready For Dispatch", msg: `Your order ${order.id} is ready for dispatch.` },
     "Morning Dispatch":    { title: "Out For Delivery", msg: `Your order ${order.id} has been dispatched (Morning).` },
@@ -2896,4 +2901,226 @@ export function getOrderDeliveryStatus(orderId: string): {
     hasPendingItems: pendingLines.length > 0,
     pendingLines,
   };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ORDER REVIEW — Warehouse Partial Approval / Full Rejection
+// ══════════════════════════════════════════════════════════════════════════════
+
+export type ReviewItemDecision = "Approved" | "Rejected";
+
+export type OrderReviewItem = {
+  product: string;
+  unit: string;
+  orderedQty: number;
+  decision: ReviewItemDecision;
+  /** Warehouse-modified qty (only when Approved and different from orderedQty) */
+  approvedQty: number;
+  /** Mandatory when Rejected */
+  rejectionReason?: string;
+};
+
+export type OrderReviewOutcome = "Approved" | "Partially Approved" | "Rejected";
+
+export type OrderReview = {
+  reviewId: string;
+  orderId: string;
+  branch: string;
+  reviewedAt: string;
+  outcome: OrderReviewOutcome;
+  items: OrderReviewItem[];
+  /** Mandatory for full rejection */
+  overallRejectionReason?: string;
+  /** Branch's response to a partial approval */
+  branchResponse?: "Accepted" | "Resubmitted";
+  branchRespondedAt?: string;
+};
+
+export type ReviewLogEntry = {
+  timestamp: string;
+  actor: "Warehouse" | "Branch";
+  action: string;
+  detail?: string;
+};
+
+const REVIEW_KEY = "demoOrderReviews";
+const REVIEW_LOG_KEY = "demoOrderReviewLog";
+
+export function getOrderReviews(): OrderReview[] {
+  return read<OrderReview[]>(REVIEW_KEY, []);
+}
+
+export function getOrderReview(orderId: string): OrderReview | undefined {
+  return getOrderReviews().find(r => r.orderId === orderId);
+}
+
+export function getReviewLog(orderId: string): ReviewLogEntry[] {
+  const all = read<Record<string, ReviewLogEntry[]>>(REVIEW_LOG_KEY, {});
+  return all[orderId] ?? [];
+}
+
+function appendReviewLog(orderId: string, entry: Omit<ReviewLogEntry, "timestamp">) {
+  const all = read<Record<string, ReviewLogEntry[]>>(REVIEW_LOG_KEY, {});
+  const entries = all[orderId] ?? [];
+  entries.unshift({ timestamp: nowStr(), ...entry });
+  all[orderId] = entries;
+  write(REVIEW_LOG_KEY, all);
+  broadcastChange(REVIEW_LOG_KEY);
+}
+
+/**
+ * Warehouse submits a review for an order.
+ * Outcome is automatically derived: all approved → Approved, all rejected → Rejected, mixed → Partially Approved.
+ * Items that are Approved have their approvedQty set (either modified or = orderedQty).
+ * Items that are Rejected have approvedQty = 0 and rejectedQty = orderedQty.
+ */
+export function submitOrderReview(
+  orderId: string,
+  items: OrderReviewItem[],
+  overallRejectionReason?: string,
+): OrderReview {
+  const approvedCount = items.filter(i => i.decision === "Approved").length;
+  const rejectedCount = items.filter(i => i.decision === "Rejected").length;
+
+  let outcome: OrderReviewOutcome;
+  if (rejectedCount === 0) outcome = "Approved";
+  else if (approvedCount === 0) outcome = "Rejected";
+  else outcome = "Partially Approved";
+
+  const review: OrderReview = {
+    reviewId: `REV-${orderId}-${Date.now()}`,
+    orderId,
+    branch: getWorkflowOrders().find(o => o.id === orderId)?.branch ?? "",
+    reviewedAt: nowStr(),
+    outcome,
+    items,
+    overallRejectionReason,
+  };
+
+  const existing = getOrderReviews().filter(r => r.orderId !== orderId);
+  write(REVIEW_KEY, [review, ...existing]);
+  broadcastChange(REVIEW_KEY);
+
+  // Update order items to reflect approved / rejected quantities
+  const orders = getWorkflowOrders();
+  const order = orders.find(o => o.id === orderId);
+  if (order) {
+    const updatedItems: WorkflowOrderItemLive[] = order.items.map(item => {
+      const ri = items.find(i => i.product === item.product);
+      if (!ri) return item;
+      if (ri.decision === "Approved") {
+        return { ...item, approvedQty: ri.approvedQty, rejectedQty: item.orderedQty - ri.approvedQty };
+      } else {
+        return { ...item, approvedQty: 0, rejectedQty: item.orderedQty };
+      }
+    });
+
+    const newStatus: WorkflowLifecycleStatus =
+      outcome === "Approved" ? "Approved"
+      : outcome === "Rejected" ? "Rejected"
+      : "Partially Approved" as WorkflowLifecycleStatus;
+
+    const updated = orders.map(o =>
+      o.id === orderId ? { ...o, status: newStatus, items: updatedItems } : o
+    );
+    write(WORKFLOW_ORDERS_KEY, updated);
+    broadcastChange(WORKFLOW_ORDERS_KEY);
+  }
+
+  // Review log entries
+  items.forEach(item => {
+    if (item.decision === "Rejected") {
+      appendReviewLog(orderId, {
+        actor: "Warehouse",
+        action: `Rejected ${item.product}`,
+        detail: item.rejectionReason ?? overallRejectionReason,
+      });
+    } else if (item.approvedQty !== item.orderedQty) {
+      appendReviewLog(orderId, {
+        actor: "Warehouse",
+        action: `Reduced ${item.product} quantity`,
+        detail: `${item.orderedQty} ${item.unit} → ${item.approvedQty} ${item.unit}`,
+      });
+    } else {
+      appendReviewLog(orderId, { actor: "Warehouse", action: `Approved ${item.product}` });
+    }
+  });
+
+  // Notifications
+  if (outcome === "Approved") {
+    pushBranchNotif({ type: "order_approved", title: "Order Approved", message: `Your order ${orderId} has been fully approved by warehouse.` });
+    pushWarehouseNotif({ type: "order_approved", title: "Order Approved", message: `Order ${orderId} approved. Proceed to production.` });
+  } else if (outcome === "Rejected") {
+    pushBranchNotif({ type: "order_rejected", title: "Order Rejected by Warehouse", message: `Your order ${orderId} has been rejected. Reason: ${overallRejectionReason ?? "See order details"}` });
+    pushWarehouseNotif({ type: "order_rejected", title: "Order Rejected", message: `Order ${orderId} rejected. Reason: ${overallRejectionReason}` });
+  } else {
+    pushBranchNotif({ type: "order_approved", title: "Order Partially Approved", message: `Your order ${orderId} has been partially approved. Please review and respond.` });
+    pushWarehouseNotif({ type: "order_approved", title: "Partial Approval Submitted", message: `Partial approval for order ${orderId} has been submitted to branch.` });
+  }
+
+  return review;
+}
+
+/**
+ * Branch accepts changes from a partial approval.
+ * Rejected products are dropped; approved products continue to production.
+ */
+export function branchAcceptPartialApproval(orderId: string): void {
+  const reviews = getOrderReviews();
+  const review = reviews.find(r => r.orderId === orderId);
+  if (!review) return;
+
+  const updated = reviews.map(r =>
+    r.orderId === orderId
+      ? { ...r, branchResponse: "Accepted" as const, branchRespondedAt: nowStr() }
+      : r
+  );
+  write(REVIEW_KEY, updated);
+  broadcastChange(REVIEW_KEY);
+
+  // Advance order to Approved so it enters production
+  const orders = getWorkflowOrders();
+  const order = orders.find(o => o.id === orderId);
+  if (order) {
+    // Only keep approved items
+    const approvedItems = order.items.filter(i => i.approvedQty > 0);
+    const updatedOrders = orders.map(o =>
+      o.id === orderId ? { ...o, status: "Approved" as WorkflowLifecycleStatus, items: approvedItems } : o
+    );
+    write(WORKFLOW_ORDERS_KEY, updatedOrders);
+    broadcastChange(WORKFLOW_ORDERS_KEY);
+  }
+
+  appendReviewLog(orderId, { actor: "Branch", action: "Accepted Changes", detail: "Approved products will proceed to production" });
+
+  pushWarehouseNotif({ type: "order_approved", title: "Branch Accepted Partial Order", message: `Branch has accepted the partial approval for order ${orderId}. Proceed to production.` });
+  pushBranchNotif({ type: "order_approved", title: "Changes Accepted", message: `You accepted the partial approval for order ${orderId}. Approved products will proceed to production.` });
+}
+
+/**
+ * Branch resubmits an order after partial approval.
+ * The order status becomes "Resubmitted" and warehouse reviews again.
+ */
+export function branchResubmitOrder(
+  orderId: string,
+  revisedItems: WorkflowOrderItemLive[],
+): void {
+  const orders = getWorkflowOrders();
+  const updated = orders.map(o =>
+    o.id === orderId
+      ? { ...o, status: "Resubmitted" as WorkflowLifecycleStatus, items: revisedItems }
+      : o
+  );
+  write(WORKFLOW_ORDERS_KEY, updated);
+  broadcastChange(WORKFLOW_ORDERS_KEY);
+
+  // Clear old review so warehouse sees fresh slate
+  const reviews = getOrderReviews().filter(r => r.orderId !== orderId);
+  write(REVIEW_KEY, reviews);
+  broadcastChange(REVIEW_KEY);
+
+  appendReviewLog(orderId, { actor: "Branch", action: "Resubmitted Order", detail: "Branch revised and resubmitted for warehouse review" });
+
+  pushWarehouseNotif({ type: "order_pending", title: "Order Resubmitted", message: `Branch has resubmitted order ${orderId} with revised quantities. Please review.` });
+  pushBranchNotif({ type: "order_pending", title: "Order Resubmitted", message: `Order ${orderId} has been resubmitted to warehouse for review.` });
 }
